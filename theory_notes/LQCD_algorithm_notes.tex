@@ -1,0 +1,703 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper, total={6.5in, 9in}]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{braket}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{booktabs}
+\usepackage{longtable}
+\setlength{\headheight}{14.5pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textit{Lattice QCD Algorithm Notes}}
+\fancyhead[R]{\textit{C. Ross}}
+\fancyfoot[C]{\thepage}
+
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\tr}{\mathrm{tr}}
+\newcommand{\Tr}{\mathrm{Tr}}
+\newcommand{\ReTr}{\mathrm{Re\,Tr}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\half}{\tfrac{1}{2}}
+
+\title{\textbf{Lattice QCD: \\ Algorithm and Implementation Notes} \\ \large Lattice\_QCD}
+\author{Christian Ross \\ Vanderbilt University}
+\date{2025--2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Introduction}
+%=============================================================================
+
+These notes document the numerical algorithms and implementation of the \code{Lattice\_QCD} code, a lattice quantum chromodynamics simulation in C++ with OpenMP parallelization. The code is structured following the same conventions as the \code{TDHFBCS\_v3} code: procedural C-style C++, one function per source file, and a module pattern for global state.
+
+The code supports the following simulation modes, in increasing order of complexity:
+\begin{enumerate}
+\item \textbf{Pure gauge (quenched) QCD}: Monte Carlo generation of SU(3) gauge field configurations via heat bath, overrelaxation, and Metropolis algorithms with the Wilson plaquette action.
+\item \textbf{Quenched Wilson fermions}: Quark propagator computation on fixed gauge backgrounds using the Wilson--Dirac operator, with CG and BiCGstab solvers. Meson correlator extraction and effective mass determination.
+\item \textbf{Dynamical fermions (HMC)}: Hybrid Monte Carlo algorithm with pseudofermion fields for full QCD including quark loop effects.
+\end{enumerate}
+
+The underlying lattice gauge theory---path integrals, Wilson's formulation, the fermion doubling problem, and the continuum limit---is covered in the reference papers collected in \code{theory\_notes/}. Here we focus on the numerical algorithms, discretization choices, and implementation details specific to our code.
+
+
+%=============================================================================
+\section{Lattice Geometry and Gauge Fields}
+\label{sec:lattice}
+%=============================================================================
+
+\subsection{Euclidean Lattice}
+
+We work on a four-dimensional hypercubic lattice $\Lambda$ with $N_x \times N_y \times N_z \times N_t$ sites and periodic boundary conditions in all directions. Lattice sites are labeled by integer coordinates $x = (x_1, x_2, x_3, x_4)$ with $x_\mu \in \{0, 1, \ldots, N_\mu - 1\}$, and the lattice spacing $a$ is set to unity throughout ($a = 1$). The lattice volume is $V = N_x N_y N_z N_t$.
+
+Sites are mapped to a one-dimensional index via
+\begin{equation}
+\label{eq:site_index}
+\mathrm{site}(x_1, x_2, x_3, x_4) = x_1 + N_x(x_2 + N_y(x_3 + N_z \, x_4)),
+\end{equation}
+and neighbor tables $n^+_\mu(\mathrm{site})$, $n^-_\mu(\mathrm{site})$ are precomputed with periodic wrapping. These are stored in the arrays \code{neighborPlus[site*4+mu]} and \code{neighborMinus[site*4+mu]}, allocated in \code{lattice\_module.cpp}.
+
+\subsection{SU(3) Gauge Links}
+
+The dynamical degrees of freedom are the gauge links $U_\mu(x) \in \mathrm{SU}(3)$, stored as $3\times 3$ complex matrices:
+\begin{equation}
+\code{gaugeField[site * 4 + mu]} \longleftrightarrow U_\mu(x).
+\end{equation}
+The total number of link variables is $4V$. Each SU(3) matrix is stored as a \code{struct SU3matrix} with a $3\times 3$ array of \code{complex\_t} elements, defined in \code{su3\_module.hpp}.
+
+\subsection{SU(3) Matrix Operations}
+
+All SU(3) operations are free functions (no class methods). The core operations implemented in \code{su3\_module.cpp} include:
+\begin{itemize}
+\item Multiplication, dagger (conjugate transpose), trace, determinant
+\item Addition, subtraction, scalar multiplication, accumulation
+\item Reunitarization via modified Gram--Schmidt orthonormalization
+\item Random SU(3) generation near identity (for Metropolis) and uniformly over the group (for hot starts)
+\item SU(2) subgroup heat bath (Kennedy--Pendleton algorithm) and Cabibbo--Marinari decomposition
+\end{itemize}
+
+Reunitarization is performed by Gram--Schmidt on the first two rows, followed by cross-product reconstruction of the third row to enforce $\det U = 1$.
+
+\subsection{Site Parity}
+
+The even/odd (checkerboard) decomposition is defined by the site parity
+\begin{equation}
+p(x) = (x_1 + x_2 + x_3 + x_4) \bmod 2.
+\end{equation}
+Even sites ($p = 0$) and odd sites ($p = 1$) form two sublattices that do not couple directly in nearest-neighbor operations. This decomposition is used for parallel heat bath updates and even--odd preconditioning of the Dirac operator.
+
+
+%=============================================================================
+\section{Wilson Gauge Action}
+\label{sec:gauge_action}
+%=============================================================================
+
+\subsection{Plaquette and Action}
+
+The elementary gauge-invariant object is the plaquette, a $1\times 1$ Wilson loop:
+\begin{equation}
+\label{eq:plaquette}
+P_{\mu\nu}(x) = U_\mu(x) \, U_\nu(x + \hat{\mu}) \, U_\mu^\dagger(x + \hat{\nu}) \, U_\nu^\dagger(x).
+\end{equation}
+The Wilson gauge action is
+\begin{equation}
+\label{eq:wilson_action}
+S_G[U] = \frac{\beta}{N_c} \sum_{x} \sum_{\mu < \nu} \left[ 1 - \frac{1}{N_c} \ReTr \, P_{\mu\nu}(x) \right],
+\end{equation}
+where $\beta = 2N_c / g^2$ is the inverse coupling and $N_c = 3$. The average plaquette is
+\begin{equation}
+\label{eq:avg_plaq}
+\langle P \rangle = \frac{1}{6V} \sum_{x} \sum_{\mu < \nu} \frac{1}{N_c} \ReTr \, P_{\mu\nu}(x),
+\end{equation}
+so that $S_G = 6 \beta V (1 - \langle P \rangle)$. This is computed in \code{compute\_plaquette.cpp} with OpenMP reduction over sites.
+
+\subsection{Staple Sum}
+
+The staple sum $V_\mu(x)$ collects the contributions of the six plaquettes sharing link $U_\mu(x)$:
+\begin{align}
+\label{eq:staple}
+V_\mu(x) &= \sum_{\nu \neq \mu} \Big[
+U_\nu(x + \hat{\mu}) \, U_\mu^\dagger(x + \hat{\nu}) \, U_\nu^\dagger(x) \nonumber \\
+&\quad + U_\nu^\dagger(x + \hat{\mu} - \hat{\nu}) \, U_\mu^\dagger(x - \hat{\nu}) \, U_\nu(x - \hat{\nu})
+\Big].
+\end{align}
+The first line is the ``positive'' staple and the second is the ``negative'' staple for each co-plane $\nu$. The staple is computed in \code{compute\_staple.cpp} and is used by all gauge update algorithms and the HMC gauge force.
+
+
+%=============================================================================
+\section{Gauge Field Update Algorithms}
+\label{sec:gauge_updates}
+%=============================================================================
+
+\subsection{Heat Bath (Cabibbo--Marinari)}
+\label{sec:heatbath}
+
+The heat bath algorithm generates a new link $U_\mu(x)$ drawn from the conditional distribution
+\begin{equation}
+P(U_\mu) \propto \exp\!\left(\frac{\beta}{N_c} \ReTr \, U_\mu \, V_\mu^\dagger \right),
+\end{equation}
+where $V_\mu$ is the staple sum. For SU(3), direct sampling is not feasible, so we use the Cabibbo--Marinari method~\cite{CabibboMarinari1982}: the SU(3) matrix is updated by successive heat bath steps on three SU(2) subgroups embedded in SU(3).
+
+For each SU(2) subgroup $(i,j) \in \{(0,1), (0,2), (1,2)\}$:
+\begin{enumerate}
+\item Extract the $2\times 2$ submatrix $W$ from $U_\mu V_\mu^\dagger$.
+\item Factor $W = k \, w$ where $k = \sqrt{\det W}$ and $w \in \mathrm{SU}(2)$.
+\item Generate $a \in \mathrm{SU}(2)$ from $P(a) \propto \exp(\beta_{\mathrm{eff}} \, k \, \ReTr \, a)$ using the Kennedy--Pendleton algorithm~\cite{KennedyPendleton1985}.
+\item Update: embed $a \, w^\dagger$ back into SU(3) and left-multiply onto $U_\mu$.
+\end{enumerate}
+
+The Kennedy--Pendleton algorithm generates the SU(2) element by:
+\begin{enumerate}
+\item Sample $x_0 = \cos\theta$ from $P(x_0) \propto \sqrt{1 - x_0^2} \, \exp(2\alpha \, x_0)$ where $\alpha = \beta_{\mathrm{eff}} \, k$, using a rejection method with exponential envelope.
+\item Sample the remaining three components uniformly on $S^2$ scaled by $\sqrt{1 - x_0^2}$.
+\end{enumerate}
+
+Implementation: \code{heat\_bath\_sweep.cpp} performs one sweep over all links using checkerboard decomposition for OpenMP parallelism---all even-parity links are updated in parallel, then all odd-parity links.
+
+\subsection{Overrelaxation}
+\label{sec:overrelax}
+
+The overrelaxation (microcanonical) update reflects the link through the local action minimum:
+\begin{equation}
+\label{eq:overrelax}
+U_\mu \to V_\mu^\dagger (U_\mu^\dagger) V_\mu^\dagger \cdot (\text{normalization}),
+\end{equation}
+where the SU(3) reflection is performed via Cabibbo--Marinari on SU(2) subgroups. For each subgroup, the quaternion representation is used: if $a = (a_0, \vec{a})$ and $v = (v_0, \vec{v})$, the reflected element is $a' = v^{-2} a$ in quaternion arithmetic, where $v$ is the SU(2) projection of $U V^\dagger$.
+
+Overrelaxation preserves the action exactly (microcanonical) but accelerates decorrelation by a factor of $\sim 2$--$3$. A typical update cycle combines 1 heat bath sweep with $n_{\mathrm{OR}} = 3$--$5$ overrelaxation sweeps. Implementation: \code{overrelaxation\_sweep.cpp}.
+
+\subsection{Metropolis}
+\label{sec:metropolis}
+
+The Metropolis algorithm proposes a random SU(3) matrix near identity:
+\begin{equation}
+U_\mu' = R \cdot U_\mu, \qquad R = \exp(i\epsilon H),
+\end{equation}
+where $H$ is a random traceless Hermitian matrix with elements of order $\epsilon$. The proposal is accepted with probability $\min(1, e^{-\Delta S})$ where $\Delta S = S[U'] - S[U]$. The parameter $\epsilon$ is tuned to achieve $\sim$50\% acceptance. Implementation: \code{metropolis\_sweep.cpp}.
+
+\subsection{Combined Update}
+
+The function \code{gauge\_update\_combined.cpp} performs one combined update cycle: 1 heat bath sweep followed by \code{nOverrelax} overrelaxation sweeps. This is called during both thermalization (\code{thermalization.cpp}) and production (\code{generate\_configurations.cpp}).
+
+
+%=============================================================================
+\section{Observables: Pure Gauge}
+\label{sec:observables}
+%=============================================================================
+
+\subsection{Plaquette and Action Density}
+
+The average plaquette $\langle P \rangle$ (Eq.~\ref{eq:avg_plaq}) is the primary diagnostic. At $\beta = 6.0$ for SU(3), the equilibrium value is $\langle P \rangle \approx 0.59$--$0.60$. The action density is $s = 6\beta(1 - \langle P \rangle)$.
+
+\subsection{Wilson Loops and Static Potential}
+
+The $R \times T$ Wilson loop is a rectangular path-ordered product:
+\begin{equation}
+W(R, T) = \frac{1}{N_c} \left\langle \ReTr \prod_{\text{path}} U_\mu \right\rangle,
+\end{equation}
+averaged over all spatial positions and orientations. For large $T$:
+\begin{equation}
+\label{eq:wilson_decay}
+W(R, T) \sim \exp\!\big(-V(R) \, T\big),
+\end{equation}
+so the static quark--antiquark potential is extracted as
+\begin{equation}
+\label{eq:static_pot}
+V(R) = -\ln \frac{W(R, T)}{W(R, T-1)}.
+\end{equation}
+The Cornell potential $V(R) = -A/R + \sigma R + C$ exhibits Coulomb behavior at short range and linear confinement at long range. Implementation: \code{wilson\_loop.cpp}, \code{static\_potential.cpp}.
+
+\subsection{Polyakov Loop}
+
+The Polyakov loop is the trace of the path-ordered product of temporal links wrapping around the lattice:
+\begin{equation}
+L(\vec{x}) = \frac{1}{N_c} \Tr \prod_{t=0}^{N_t - 1} U_4(\vec{x}, t).
+\end{equation}
+The spatial average $\langle L \rangle$ is an order parameter for the deconfinement phase transition: $\langle L \rangle = 0$ in the confined phase and $\langle L \rangle \neq 0$ in the deconfined phase. Implementation: \code{polyakov\_loop.cpp}.
+
+
+%=============================================================================
+\section{Wilson--Dirac Operator}
+\label{sec:wilson_dirac}
+%=============================================================================
+
+\subsection{Fermion Doubling and Wilson Term}
+
+Naive lattice fermions produce $2^4 = 16$ degenerate fermion species (doublers) due to the periodicity of the lattice Brillouin zone. Wilson's solution~\cite{Wilson1977} adds a dimension-5 operator---the Wilson term---that gives the doublers a mass of order $1/a$, decoupling them in the continuum limit at the cost of explicitly breaking chiral symmetry.
+
+\subsection{Wilson--Dirac Operator}
+
+The Wilson--Dirac operator acting on a color-spinor field $\psi(x)$ is
+\begin{align}
+\label{eq:wilson_dirac}
+(D_W \psi)(x) &= \psi(x) - \kappa \sum_{\mu=1}^{4} \Big[
+(r - \gamma_\mu) \, U_\mu(x) \, \psi(x + \hat{\mu}) \nonumber \\
+&\quad\quad + (r + \gamma_\mu) \, U_\mu^\dagger(x - \hat{\mu}) \, \psi(x - \hat{\mu})
+\Big],
+\end{align}
+where $\kappa = 1/(2m_0 + 8r)$ is the hopping parameter, $r = 1$ is the Wilson parameter, $m_0$ is the bare quark mass, and $\gamma_\mu$ are the Euclidean Dirac matrices. The critical hopping parameter $\kappa_c$ is the value at which the pion mass vanishes.
+
+\subsection{Color-Spinor Fields}
+
+A color-spinor field $\psi(x)$ has 4 Dirac (spin) and 3 color components at each lattice site:
+\begin{equation}
+\psi(x)_{s,c}, \qquad s \in \{0,1,2,3\}, \quad c \in \{0,1,2\}.
+\end{equation}
+This is stored as \code{struct ColorSpinor \{ complex\_t v[4][3]; \}} defined in \code{colorspinor\_module.hpp}. Field-level BLAS-like operations (dot product, norm, axpy, copy) are implemented with OpenMP in \code{colorspinor\_module.cpp}.
+
+\subsection{Gamma Matrices}
+
+We use the DeGrand--Rossi (chiral) basis for the Euclidean gamma matrices. In this basis, each $\gamma_\mu$ has exactly one nonzero entry per row, enabling an efficient sparse representation:
+\begin{equation}
+(\gamma_\mu)_{s,s'} = g_\mu^{\mathrm{val}}(s) \; \delta_{s', g_\mu^{\mathrm{idx}}(s)},
+\end{equation}
+stored as arrays \code{gammaIdx[5][4]} and \code{gammaVal[5][4]} (indices 0--3 for $\gamma_1$--$\gamma_4$, index 4 for $\gamma_5$). The $\gamma_5$ matrix is diagonal: $\gamma_5 = \mathrm{diag}(+1, +1, -1, -1)$.
+
+The Wilson--Dirac operator application involves, for each site and direction $\mu$: color-rotating the neighbor field by $U_\mu$ or $U_\mu^\dagger$, then applying $(r \mp \gamma_\mu)$ using the sparse representation. Implementation: \code{wilson\_dirac\_operator.cpp}. The adjoint operator $D_W^\dagger = \gamma_5 D_W \gamma_5$ is implemented in \code{wilson\_dirac\_dagger.cpp}.
+
+\subsection{Even--Odd Preconditioning}
+
+The Wilson--Dirac operator can be written in block form on the even/odd sublattices:
+\begin{equation}
+D_W = \begin{pmatrix} 1 & -\kappa D_{eo} \\ -\kappa D_{oe} & 1 \end{pmatrix},
+\end{equation}
+where $D_{eo}$ and $D_{oe}$ are the hopping terms between sublattices. The Schur complement
+\begin{equation}
+\hat{D} = 1 - \kappa^2 D_{eo} D_{oe}
+\end{equation}
+acts only on even sites, halving the system size. After solving $\hat{D} \psi_e = b_e$, the odd-site solution is reconstructed as $\psi_o = b_o + \kappa D_{oe} \psi_e$. Implementation: \code{even\_odd\_preconditioning.cpp}.
+
+
+%=============================================================================
+\section{Linear Solvers}
+\label{sec:solvers}
+%=============================================================================
+
+\subsection{Conjugate Gradient (CG)}
+\label{sec:cg}
+
+The CG algorithm solves the normal equations $D_W^\dagger D_W \, x = D_W^\dagger b$, exploiting the fact that $D_W^\dagger D_W$ is Hermitian positive-definite. Given initial guess $x_0 = 0$:
+\begin{align}
+&r_0 = D_W^\dagger b, \quad p_0 = r_0, \quad \rho_0 = \|r_0\|^2 \nonumber \\
+&\text{For } k = 0, 1, 2, \ldots: \nonumber \\
+&\quad q_k = D_W^\dagger D_W \, p_k \nonumber \\
+&\quad \alpha_k = \rho_k / (p_k, q_k) \nonumber \\
+&\quad x_{k+1} = x_k + \alpha_k \, p_k \nonumber \\
+&\quad r_{k+1} = r_k - \alpha_k \, q_k \nonumber \\
+&\quad \rho_{k+1} = \|r_{k+1}\|^2 \nonumber \\
+&\quad \beta_k = \rho_{k+1} / \rho_k \nonumber \\
+&\quad p_{k+1} = r_{k+1} + \beta_k \, p_k
+\end{align}
+Convergence criterion: $\|r_k\| / \|r_0\| < \epsilon_{\mathrm{CG}}$ (default $10^{-8}$). Each iteration requires one application of $D_W$ and one of $D_W^\dagger$. Implementation: \code{cg\_solver.cpp}.
+
+\subsection{BiCGstab}
+\label{sec:bicgstab}
+
+The BiCGstab (biconjugate gradient stabilized) algorithm~\cite{vanderVorst1992} solves the non-symmetric system $D_W x = b$ directly, which can be more efficient than CG on the normal equations since it requires only one $D_W$ application per iteration (rather than $D_W + D_W^\dagger$).
+
+A key implementation detail: the shadow residual $\hat{r}_0$ must be chosen carefully. Using $\hat{r}_0 = r_0 = b$ (the standard choice) causes breakdown for sparse sources (point sources) because $(\hat{r}_0, v) = (b, D_W p)$ can vanish when $b$ has support on a single site. Our implementation uses a \textbf{random shadow residual} generated from a fixed seed, which eliminates this breakdown. Implementation: \code{bicgstab\_solver.cpp}.
+
+
+%=============================================================================
+\section{Quark Propagators and Meson Correlators}
+\label{sec:spectroscopy}
+%=============================================================================
+
+\subsection{Point-to-All Propagator}
+
+The quark propagator $S(x; x_0)$ from source point $x_0$ is obtained by solving
+\begin{equation}
+D_W \, S_{s_0, c_0}(x) = \eta_{s_0, c_0}(x), \qquad \eta_{s_0, c_0}(x) = \delta_{x, x_0} \, \delta_{s, s_0} \, \delta_{c, c_0},
+\end{equation}
+for all 12 source spin-color combinations $(s_0, c_0)$. This requires 12 linear solves per gauge configuration. Implementation: \code{compute\_propagator.cpp}, \code{point\_source.cpp}.
+
+\subsection{Meson Correlators}
+
+The zero-momentum meson correlator for channel $\Gamma$ is
+\begin{equation}
+\label{eq:meson_corr}
+C_\Gamma(t) = -\sum_{\vec{x}} \Tr\!\left[\Gamma \, S(\vec{x}, t; 0) \, \Gamma^\dagger \gamma_5 \, S^\dagger(\vec{x}, t; 0) \, \gamma_5\right],
+\end{equation}
+where the trace is over spin and color, and $\gamma_5$-hermiticity ($S^\dagger = \gamma_5 S \gamma_5$) is used to avoid computing the backward propagator. The channels implemented are:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Channel & $\Gamma$ & $J^{PC}$ \\
+\midrule
+Pion & $\gamma_5$ & $0^{-+}$ \\
+Rho ($x,y,z$) & $\gamma_i$ & $1^{--}$ \\
+Scalar & $\mathbf{1}$ & $0^{++}$ \\
+$a_1$ ($x,y,z$) & $\gamma_5 \gamma_i$ & $1^{++}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+A subtlety in the implementation: $\Gamma^\dagger$ acts on the \textit{source} spin index of the propagator, mixing different source-spin components. For the pion ($\gamma_5^\dagger \gamma_5 = \mathbf{1}$), the source spin is unchanged, but for the rho and $a_1$ channels, the index mapping $s_0 \to a = (\gamma_\Gamma^{\mathrm{idx}})(s_0)$ must be applied. Implementation: \code{meson\_correlator.cpp}.
+
+\subsection{Effective Mass}
+
+The effective mass is extracted from the correlator ratio:
+\begin{equation}
+\label{eq:meff}
+m_{\mathrm{eff}}(t) = \ln \frac{C(t)}{C(t+1)},
+\end{equation}
+which approaches a plateau $m_{\mathrm{eff}} \to m$ at large $t$ where the ground state dominates. A cosh variant accounting for backward-propagating states on a periodic lattice is also available:
+\begin{equation}
+\frac{C(t)}{C(t+1)} = \frac{\cosh\!\big(m(t - N_t/2)\big)}{\cosh\!\big(m(t + 1 - N_t/2)\big)},
+\end{equation}
+solved by Newton's method. Implementation: \code{effective\_mass.cpp}.
+
+
+%=============================================================================
+\section{Hybrid Monte Carlo (HMC)}
+\label{sec:hmc}
+%=============================================================================
+
+\subsection{Overview}
+
+The HMC algorithm~\cite{Duane1987} generates gauge configurations distributed according to the full QCD partition function including dynamical fermion effects:
+\begin{equation}
+Z = \int \mathcal{D}U \; \det(D_W^\dagger D_W) \; e^{-S_G[U]}.
+\end{equation}
+The fermion determinant is represented using pseudofermion fields $\phi$:
+\begin{equation}
+\det(D_W^\dagger D_W) = \int \mathcal{D}\phi^\dagger \mathcal{D}\phi \; \exp\!\left(-\phi^\dagger (D_W^\dagger D_W)^{-1} \phi\right).
+\end{equation}
+HMC introduces conjugate momenta $H_\mu(x)$ (traceless anti-Hermitian matrices in the Lie algebra $\mathfrak{su}(3)$) and evolves the system via molecular dynamics (MD) followed by a Metropolis accept/reject step.
+
+\subsection{HMC Trajectory}
+
+A single HMC trajectory consists of the following steps, implemented in \code{hmc\_trajectory.cpp}:
+\begin{enumerate}
+\item \textbf{Save} the current gauge field $U_\mu^{(0)}$.
+\item \textbf{Generate momenta}: draw $H_\mu(x)$ from $P(H) \propto \exp\!\big(-\half \sum |H_{ij}|^2\big)$, i.e., Gaussian-distributed traceless anti-Hermitian matrices.
+\item \textbf{Generate pseudofermion}: draw Gaussian $\xi$ and set $\phi = D_W^\dagger \xi$. Then $S_{\mathrm{PF}} = \phi^\dagger (D_W^\dagger D_W)^{-1} \phi = \|\xi\|^2$ initially.
+\item \textbf{Compute initial Hamiltonian}: $\mathcal{H}_i = T + S_G + S_{\mathrm{PF}}$ where $T = \half \sum_{\mu,x} |H_\mu(x)|^2$.
+\item \textbf{Leapfrog integration}: evolve $(U, H)$ for $N_{\mathrm{MD}}$ steps (Section~\ref{sec:leapfrog}).
+\item \textbf{Compute final Hamiltonian}: $\mathcal{H}_f = T' + S_G' + S_{\mathrm{PF}}'$.
+\item \textbf{Metropolis test}: accept with probability $\min(1, e^{-\Delta\mathcal{H}})$ where $\Delta\mathcal{H} = \mathcal{H}_f - \mathcal{H}_i$. If rejected, restore $U_\mu^{(0)}$.
+\end{enumerate}
+
+\subsection{Conjugate Momenta}
+\label{sec:momenta}
+
+The conjugate momenta $H_\mu(x)$ are traceless anti-Hermitian $3 \times 3$ matrices, elements of the Lie algebra $\mathfrak{su}(3)$. They have 8 real degrees of freedom. We generate them as follows:
+\begin{itemize}
+\item Off-diagonal: $H_{ij} = (a + ib)/\sqrt{2}$, $H_{ji} = (-a + ib)/\sqrt{2}$ with $a, b \sim \mathcal{N}(0,1)$.
+\item Diagonal: $H_{ii} = i d_i / \sqrt{2}$ with $d_i \sim \mathcal{N}(0,1)$ for $i < N_c$, and $d_{N_c} = -\sum_{i<N_c} d_i$ (traceless).
+\end{itemize}
+The kinetic energy is
+\begin{equation}
+\label{eq:kinetic}
+T = \half \sum_{\mu, x} \sum_{i,j} |H_\mu(x)_{ij}|^2 = -\half \sum_{\mu,x} \Tr\!\big(H_\mu(x)^2\big).
+\end{equation}
+Implementation: \code{conjugate\_momentum.cpp}.
+
+\subsection{Pseudofermion Generation and Action}
+
+The pseudofermion field $\phi$ is generated by:
+\begin{enumerate}
+\item Draw a Gaussian random spinor field $\xi(x)$ with $\langle \xi^*_{s,c}(x) \, \xi_{s',c'}(y) \rangle = \delta_{xy} \delta_{ss'} \delta_{cc'}$.
+\item Set $\phi = D_W^\dagger \xi$.
+\end{enumerate}
+This ensures $\phi$ is distributed according to $P(\phi) \propto \exp(-\phi^\dagger (D_W^\dagger D_W)^{-1} \phi)$ since $\phi^\dagger (D_W^\dagger D_W)^{-1} \phi = \xi^\dagger D_W (D_W^\dagger D_W)^{-1} D_W^\dagger \xi = \xi^\dagger \xi$. Implementation: \code{generate\_pseudofermion.cpp}.
+
+The pseudofermion action at a general gauge field $U$ (different from the one used to generate $\phi$) is
+\begin{equation}
+\label{eq:spf}
+S_{\mathrm{PF}} = \phi^\dagger (D_W^\dagger D_W)^{-1} \phi = \mathrm{Re}(\phi^\dagger X),
+\end{equation}
+where $X$ solves $D_W^\dagger D_W X = \phi$ via CG. Implementation: \code{pseudofermion\_action.cpp}.
+
+
+%=============================================================================
+\section{Molecular Dynamics Forces}
+\label{sec:forces}
+%=============================================================================
+
+\subsection{Force Convention}
+
+The molecular dynamics forces enter the leapfrog integrator via the momentum update $H \gets H - \epsilon \, F$. Our convention is that the force $F_\mu(x)$ is a traceless anti-Hermitian matrix satisfying
+\begin{equation}
+\label{eq:force_convention}
+\frac{\dd S}{\dd\epsilon}\bigg|_{U \to e^{\epsilon X} U} = -\ReTr(X \cdot F)
+\end{equation}
+for any traceless anti-Hermitian direction $X$. Here $[\cdot]_{\mathrm{TA}}$ denotes the traceless anti-Hermitian projection:
+\begin{equation}
+[M]_{\mathrm{TA}} = \frac{M - M^\dagger}{2} - \frac{\Tr(M - M^\dagger)}{2 N_c} \cdot \mathbf{1}.
+\end{equation}
+
+\subsection{Gauge Force}
+
+The derivative of the Wilson gauge action (Eq.~\ref{eq:wilson_action}) with respect to link $U_\mu(x)$ in direction $X$ gives:
+\begin{equation}
+\frac{\dd S_G}{\dd \epsilon} = -\frac{\beta}{N_c} \ReTr\!\big(X \cdot U_\mu V_\mu\big) = -\ReTr\!\big(X \cdot F_\mu^G\big),
+\end{equation}
+where $V_\mu(x)$ is the staple sum (Eq.~\ref{eq:staple}). Therefore:
+\begin{equation}
+\label{eq:gauge_force}
+\boxed{F_\mu^G(x) = \frac{\beta}{N_c} \left[U_\mu(x) \, V_\mu(x)\right]_{\mathrm{TA}}}
+\end{equation}
+Note: the staple $V_\mu$ enters \textit{without} a dagger. Implementation: \code{gauge\_force.cpp}.
+
+\subsection{Fermion Force}
+
+The derivative of the pseudofermion action (Eq.~\ref{eq:spf}) with respect to $U_\mu(x)$ requires the solution $X = (D_W^\dagger D_W)^{-1} \phi$ (via CG) and $Y = D_W X$. The fermion force is:
+\begin{equation}
+\label{eq:fermion_force}
+\boxed{F_\mu^F(x) = -2\kappa \left[U_\mu(x) \, M_\mu(x)\right]_{\mathrm{TA}}}
+\end{equation}
+where the color matrix $M_\mu(x)$ is built from outer products of the fermion fields:
+\begin{align}
+M_\mu(x)_{ab} &= \sum_s \Big[
+\big((r - \gamma_\mu) X(x + \hat{\mu})\big)_{s,a} \; Y^*(x)_{s,b} \nonumber \\
+&\quad + Y(x + \hat{\mu})_{s,a} \; \big((r + \gamma_\mu) X(x)\big)^*_{s,b}
+\Big].
+\end{align}
+The first term arises from the forward hopping of $D_W$ and the second from the backward hopping. The factor of $2\kappa$ (rather than $\kappa$) comes from matching the force convention (Eq.~\ref{eq:force_convention}) with the inner product used by the gauge force. Implementation: \code{fermion\_force.cpp}.
+
+
+%=============================================================================
+\section{Leapfrog Integrator}
+\label{sec:leapfrog}
+%=============================================================================
+
+\subsection{Symplectic Integration}
+
+The leapfrog (St\"ormer--Verlet) scheme integrates Hamilton's equations while preserving the symplectic structure. For $N$ steps of size $\epsilon$ (total trajectory length $\tau = N\epsilon$):
+\begin{align}
+\label{eq:leapfrog}
+&H_{1/2} = H_0 - \frac{\epsilon}{2} F(U_0) & &\text{(half-step momentum)} \nonumber \\
+&\text{For } n = 0, \ldots, N-1: \nonumber \\
+&\quad U_{n+1} = \exp(\epsilon H_{n+1/2}) \cdot U_n & &\text{(full-step gauge)} \nonumber \\
+&\quad H_{n+3/2} = H_{n+1/2} - \epsilon \, F(U_{n+1}) & &\text{(full-step momentum)} \nonumber \\
+&H_N = H_{N-1/2} - \frac{\epsilon}{2} F(U_N) & &\text{(final half-step)}
+\end{align}
+where $F = F^G + F^F$ is the total force. The last full momentum step is omitted and replaced by the final half-step.
+
+Key properties:
+\begin{itemize}
+\item \textbf{Symplectic}: preserves phase space volume exactly.
+\item \textbf{Time-reversible}: reversing all momenta and repeating returns to the initial state (to machine precision).
+\item \textbf{Energy conservation}: $\Delta\mathcal{H} = \mathcal{O}(\epsilon^2)$ per trajectory.
+\end{itemize}
+
+\subsection{Gauge Field Update}
+
+The gauge field update $U \to \exp(\epsilon H) \cdot U$ requires the matrix exponential of a traceless anti-Hermitian matrix. We compute $\exp(A)$ via a 12-term Taylor series using Horner's method:
+\begin{equation}
+\exp(A) \approx \mathbf{1} + A + \frac{A^2}{2!} + \cdots + \frac{A^{12}}{12!},
+\end{equation}
+evaluated as $\exp(A) = \mathbf{1} + \frac{A}{12}(\mathbf{1} + \frac{A}{11}(\cdots))$. The result is reunitarized to ensure exact SU(3) membership. For typical MD step sizes ($\epsilon \sim 0.02$), 12 terms gives machine-precision accuracy. Implementation: \code{exp\_su3\_algebra.cpp}.
+
+\subsection{Force Computation Cost}
+
+Each leapfrog step requires:
+\begin{itemize}
+\item One gauge force computation: $\mathcal{O}(V)$ staple calculations.
+\item One fermion force computation: one CG solve ($D_W^\dagger D_W X = \phi$) plus one $D_W$ application, followed by $\mathcal{O}(V)$ outer product evaluations.
+\end{itemize}
+The fermion force (specifically the CG solve) dominates the computational cost, scaling as $\mathcal{O}(V \cdot N_{\mathrm{CG}})$ per MD step. The total cost per trajectory is $\mathcal{O}(N_{\mathrm{MD}} \cdot V \cdot N_{\mathrm{CG}})$.
+
+
+%=============================================================================
+\section{Code Architecture}
+\label{sec:architecture}
+%=============================================================================
+
+\subsection{Module Pattern}
+
+Global state is managed through module files following the Fortran module convention:
+\begin{itemize}
+\item \code{constants\_module.hpp/.cpp}: Type definitions (\code{real\_t}, \code{complex\_t}), physical constants ($N_c = 3$, $\pi$).
+\item \code{su3\_module.hpp/.cpp}: \code{SU3matrix} struct and all SU(3) algebra operations. Thread-local RNG.
+\item \code{input\_module.hpp/.cpp}: All simulation parameters as \code{extern} globals.
+\item \code{lattice\_module.hpp/.cpp}: Lattice geometry, neighbor tables.
+\item \code{colorspinor\_module.hpp/.cpp}: \code{ColorSpinor} struct and field operations.
+\item \code{gamma\_matrices.hpp/.cpp}: Sparse Dirac gamma matrix representation.
+\item \code{interfaces\_module.hpp}: Single header declaring all function prototypes.
+\end{itemize}
+
+\subsection{Source File Organization}
+
+Each computational function resides in its own \code{.cpp} file. The complete file inventory:
+
+\begin{longtable}{lp{8cm}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\multicolumn{2}{l}{\textit{Infrastructure}} \\
+\code{lqcd\_main.cpp} & Entry point: parse input, initialize, dispatch \\
+\code{read\_input\_file.cpp} & INI-style parser (\code{[Section]} / \code{Key: Value}) \\
+\code{set\_parameter.cpp} & Map parsed key/value to global variables \\
+\code{openmp\_parallel\_setup.cpp} & Thread count configuration \\
+\midrule
+\multicolumn{2}{l}{\textit{Gauge Field Management}} \\
+\code{initialize\_gauge\_field.cpp} & Cold (identity) or hot (random) start \\
+\code{write\_gauge\_config.cpp} & Binary save with ASCII header \\
+\code{read\_gauge\_config.cpp} & Binary load \\
+\midrule
+\multicolumn{2}{l}{\textit{Pure Gauge Updates (Phase 1)}} \\
+\code{compute\_staple.cpp} & Staple sum $V_\mu(x)$ \\
+\code{heat\_bath\_sweep.cpp} & Cabibbo--Marinari heat bath \\
+\code{overrelaxation\_sweep.cpp} & Microcanonical reflection \\
+\code{metropolis\_sweep.cpp} & Metropolis update \\
+\code{gauge\_update\_combined.cpp} & 1 HB + $n_{\mathrm{OR}}$ overrelaxation sweeps \\
+\code{thermalization.cpp} & Thermalization loop \\
+\code{generate\_configurations.cpp} & Production loop with measurements \\
+\midrule
+\multicolumn{2}{l}{\textit{Pure Gauge Measurements}} \\
+\code{compute\_plaquette.cpp} & Average plaquette \\
+\code{measure\_plaquette.cpp} & Plaquette measurement and output \\
+\code{wilson\_loop.cpp} & $W(R,T)$ for all $R$, $T$ \\
+\code{polyakov\_loop.cpp} & Polyakov loop average \\
+\code{static\_potential.cpp} & $V(R)$ extraction \\
+\code{write\_observables.cpp} & ASCII output of measurements \\
+\code{jackknife\_analysis.cpp} & Delete-1 jackknife error estimation \\
+\midrule
+\multicolumn{2}{l}{\textit{Wilson Fermions (Phase 2)}} \\
+\code{wilson\_dirac\_operator.cpp} & $D_W \psi$ \\
+\code{wilson\_dirac\_dagger.cpp} & $D_W^\dagger \psi = \gamma_5 D_W \gamma_5 \psi$ \\
+\code{even\_odd\_preconditioning.cpp} & $D_{eo}$, $D_{oe}$, Schur complement \\
+\code{cg\_solver.cpp} & CG on $D_W^\dagger D_W$ \\
+\code{bicgstab\_solver.cpp} & BiCGstab on $D_W$ \\
+\code{point\_source.cpp} & Delta-function source \\
+\code{compute\_propagator.cpp} & 12 inversions for full propagator \\
+\code{meson\_correlator.cpp} & $C_\Gamma(t)$ for 8 channels \\
+\code{effective\_mass.cpp} & Log ratio and cosh methods \\
+\code{write\_correlators.cpp} & ASCII correlator output \\
+\midrule
+\multicolumn{2}{l}{\textit{HMC (Phase 3)}} \\
+\code{exp\_su3\_algebra.cpp} & $\exp(\epsilon H) \cdot U$, TA projection, algebra norm \\
+\code{conjugate\_momentum.cpp} & Gaussian momentum generation, $T$ \\
+\code{generate\_pseudofermion.cpp} & $\phi = D_W^\dagger \xi$ \\
+\code{pseudofermion\_action.cpp} & $S_{\mathrm{PF}} = \phi^\dagger (D_W^\dagger D_W)^{-1} \phi$ \\
+\code{gauge\_force.cpp} & $F^G = (\beta/N_c)[U V]_{\mathrm{TA}}$ \\
+\code{fermion\_force.cpp} & $F^F = -2\kappa [U M]_{\mathrm{TA}}$ \\
+\code{leapfrog\_integrator.cpp} & Verlet integrator \\
+\code{hmc\_trajectory.cpp} & Full trajectory + Metropolis \\
+\code{hmc\_driver.cpp} & Thermalization + production \\
+\end{longtable}
+
+\subsection{OpenMP Parallelization}
+
+The parallelization strategy varies by context:
+\begin{itemize}
+\item \textbf{Gauge updates}: Checkerboard (even/odd) decomposition. Even-parity links are updated in parallel, then odd-parity links. This avoids race conditions since no two even-parity links share a staple.
+\item \textbf{Measurements}: Trivially parallel over sites with \code{\#pragma omp parallel for reduction(+:sum)}.
+\item \textbf{Dirac operator}: Parallel over sites; each site computation is independent given the gauge and fermion fields.
+\item \textbf{Solver vector operations}: Parallel in dot products, norms, and axpy operations.
+\item \textbf{Thread-safe RNG}: Each thread has its own \code{std::mt19937\_64} instance (\code{rng\_local}), seeded from the master seed plus the thread ID. The seeding function \code{ensure\_rng\_seeded()} uses a thread-local flag to avoid redundant initialization.
+\end{itemize}
+
+\subsection{Build System}
+
+The code is built via \code{src/Makefile} with \code{g++ -std=c++17 -O3 -march=native -fopenmp}. The wrapper script \code{build.sh} invokes \code{make -j\$(nproc)}. Runtime scripts:
+\begin{itemize}
+\item \code{run.sh}: Set OMP environment, run executable, log timing.
+\item \code{batch\_run.sh}: Sequential batch over multiple input files.
+\item \code{remote\_run.sh}: Deploy, compile, run, and fetch results from a remote cluster.
+\end{itemize}
+
+
+%=============================================================================
+\section{Validation}
+\label{sec:validation}
+%=============================================================================
+
+\subsection{Pure Gauge ($\beta = 6.0$, quenched)}
+
+\begin{itemize}
+\item \textbf{4$^4$ lattice}: $\langle P \rangle \approx 0.59$--$0.60$ after thermalization (both hot and cold starts converge).
+\item \textbf{8$^3 \times 16$ lattice}: $\langle P \rangle \approx 0.593$. Wilson loops show area-law decay. Static potential $V(R)$ exhibits Coulomb behavior at short range and linear confinement at large $R$.
+\item \textbf{Polyakov loop}: $\langle L \rangle \approx 0$, consistent with the confined phase.
+\end{itemize}
+
+\subsection{Wilson Fermions (quenched)}
+
+\begin{itemize}
+\item \textbf{Free-field test} ($U_\mu = \mathbf{1}$): CG converges in 38 iterations, BiCGstab in 34. Pion correlator $C(0) = 17.72$, $m_{\mathrm{eff}} = 0.419$.
+\item \textbf{Interacting} ($\beta = 6.0$, $\kappa = 0.15$): BiCGstab converges in $\sim$100 iterations. Mass hierarchy $m_\pi < m_\rho < m_{\mathrm{scalar}}$ confirmed.
+\end{itemize}
+
+\subsection{HMC ($\beta = 5.6$, $\kappa = 0.12$)}
+
+\begin{itemize}
+\item \textbf{Force validation}: Gauge and fermion forces match numerical derivatives of the action to 6+ digits.
+\item \textbf{Reversibility}: Forward + backward leapfrog returns to the initial state at machine precision ($\sim 10^{-15}$).
+\item \textbf{Energy conservation}: $\Delta\mathcal{H}$ scales as $\mathcal{O}(\epsilon^2)$ with MD step size $\epsilon$.
+\item \textbf{Production}: 98\% acceptance rate with $N_{\mathrm{MD}} = 10$, $\epsilon = 0.02$. Plaquette $\langle P \rangle \approx 0.47$--$0.48$. $\Delta\mathcal{H} \sim \mathcal{O}(0.01$--$0.1)$.
+\end{itemize}
+
+
+%=============================================================================
+% References
+%=============================================================================
+
+\begin{thebibliography}{99}
+
+\bibitem{Wilson1974}
+K.~G.~Wilson,
+``Confinement of quarks,''
+Phys.\ Rev.\ D \textbf{10}, 2445 (1974).
+
+\bibitem{Wilson1977}
+K.~G.~Wilson,
+``Quarks and strings on a lattice,''
+in \textit{New Phenomena in Subnuclear Physics} (Plenum, New York, 1977).
+
+\bibitem{CabibboMarinari1982}
+N.~Cabibbo and E.~Marinari,
+``A new method for updating SU($N$) matrices in computer simulations of gauge theories,''
+Phys.\ Lett.\ B \textbf{119}, 387 (1982).
+
+\bibitem{KennedyPendleton1985}
+A.~D.~Kennedy and B.~J.~Pendleton,
+``Improved heat bath method for Monte Carlo calculations in lattice gauge theory,''
+Phys.\ Lett.\ B \textbf{156}, 393 (1985).
+
+\bibitem{Duane1987}
+S.~Duane, A.~D.~Kennedy, B.~J.~Pendleton, and D.~Roweth,
+``Hybrid Monte Carlo,''
+Phys.\ Lett.\ B \textbf{195}, 216 (1987).
+
+\bibitem{vanderVorst1992}
+H.~A.~van der Vorst,
+``Bi-CGSTAB: A fast and smoothly converging variant of Bi-CG for the solution of nonsymmetric linear systems,''
+SIAM J.\ Sci.\ Stat.\ Comput.\ \textbf{13}, 631 (1992).
+
+\bibitem{DeGrandDeTar2006}
+T.~DeGrand and C.~DeTar,
+\textit{Lattice Methods for Quantum Chromodynamics}
+(World Scientific, Singapore, 2006).
+
+\bibitem{GattringerLang2010}
+C.~Gattringer and C.~B.~Lang,
+\textit{Quantum Chromodynamics on the Lattice}
+(Springer, Berlin, 2010).
+
+\bibitem{Rothe2012}
+H.~J.~Rothe,
+\textit{Lattice Gauge Theories: An Introduction}, 4th ed.\
+(World Scientific, Singapore, 2012).
+
+\end{thebibliography}
+
+\end{document}
