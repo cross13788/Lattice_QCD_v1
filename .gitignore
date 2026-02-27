@@ -1,0 +1,14 @@
+# Build artifacts
+src/*.o
+run/lqcd.exe
+run/test_*.exe
+
+# Output data directories
+run/SU3_*/
+
+# Test output
+run/test_output.txt
+
+# Editor backups
+*~
+*.swp

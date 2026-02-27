@@ -1,0 +1,55 @@
+# Lattice QCD Input File
+# Quenched SU(3) Wilson gauge action, 8^3 x 16 lattice
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 8
+nY: 8
+nZ: 8
+nT: 16
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 6.0
+Update Method: heatbath
+Metropolis Epsilon: 0.2
+Start Type: cold
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 500
+Number of Configurations: 100
+Sweeps Between Measurements: 10
+Overrelaxation Sweeps: 4
+Configuration Save Frequency: 10
+Save Binary Configs: on
+Random Seed: 12345
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: on
+Wilson Loop R Max: 4
+Wilson Loop T Max: 8
+Measure Polyakov: on
+Measure Correlators: off
+Verbose Output: on
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.15
+Wilson r: 1.0
+CG Max Iterations: 1000
+CG Tolerance: 1.0e-10
+Solver Type: bicgstab
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 20
+MD Step Size: 0.01
+HMC Trajectories: 100
