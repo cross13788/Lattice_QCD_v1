@@ -1,0 +1,55 @@
+# Test 2b: Quenched spectroscopy - kappa=0.120 (heavy)
+# 8^3 x 16 lattice, beta=6.0
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 8
+nY: 8
+nZ: 8
+nT: 16
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 6.0
+Update Method: heatbath
+Metropolis Epsilon: 0.2
+Start Type: hot
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 300
+Number of Configurations: 20
+Sweeps Between Measurements: 20
+Overrelaxation Sweeps: 4
+Configuration Save Frequency: 100
+Save Binary Configs: off
+Random Seed: 60120
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: off
+Wilson Loop R Max: 2
+Wilson Loop T Max: 2
+Measure Polyakov: off
+Measure Correlators: on
+Verbose Output: off
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.120
+Wilson r: 1.0
+CG Max Iterations: 5000
+CG Tolerance: 1.0e-10
+Solver Type: cg
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 20
+MD Step Size: 0.01
+HMC Trajectories: 100

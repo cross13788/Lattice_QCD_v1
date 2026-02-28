@@ -68,6 +68,9 @@ void set_parameter(const char* section, const char* key, const char* value)
         else if (str_eq(key, "Wilson Loop T Max")) { wilsonLoopTmax = atoi(value); }
         else if (str_eq(key, "Measure Polyakov"))  { measurePolyakov = parse_bool(value); }
         else if (str_eq(key, "Measure Correlators")) { measureCorrelators = parse_bool(value); }
+        else if (str_eq(key, "Measure Action Density")) { measureActionDensity = parse_bool(value); }
+        else if (str_eq(key, "Cooling Steps"))     { nCoolingSteps = atoi(value); }
+        else if (str_eq(key, "Cooling Alpha"))     { coolingAlpha = atof(value); }
         else if (str_eq(key, "Verbose Output"))    { verboseOutput = parse_bool(value); }
         else { printf("  Warning: Unknown key '%s' in [%s]\n", key, section); }
     }

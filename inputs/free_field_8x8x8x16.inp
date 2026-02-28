@@ -1,0 +1,56 @@
+# Test 2a: Free-field fermion propagator test
+# Cold start (identity links), no thermalization, 1 config
+# Check pion correlator against analytic free-field result
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 8
+nY: 8
+nZ: 8
+nT: 16
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 6.0
+Update Method: heatbath
+Metropolis Epsilon: 0.2
+Start Type: cold
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 0
+Number of Configurations: 1
+Sweeps Between Measurements: 1
+Overrelaxation Sweeps: 0
+Configuration Save Frequency: 10
+Save Binary Configs: off
+Random Seed: 42
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: off
+Wilson Loop R Max: 2
+Wilson Loop T Max: 2
+Measure Polyakov: on
+Measure Correlators: on
+Verbose Output: on
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.12
+Wilson r: 1.0
+CG Max Iterations: 5000
+CG Tolerance: 1.0e-12
+Solver Type: cg
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 20
+MD Step Size: 0.01
+HMC Trajectories: 100

@@ -7,9 +7,13 @@
 // Cabibbo-Marinari heat bath with Kennedy-Pendleton.
 //-----------------------------------------------
 #include "su3_module.hpp"
+#include "input_module.hpp"
 #include <cmath>
 #include <cstdio>
 #include <random>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 // Thread-local random number generator (extern declared in su3_module.hpp)
 thread_local std::mt19937_64 rng_local;
@@ -18,8 +22,12 @@ static thread_local bool rngSeeded = false;
 void ensure_rng_seeded()
 {
     if (!rngSeeded) {
-        std::random_device rd;
-        rng_local.seed(rd());
+        int threadId = 0;
+#ifdef _OPENMP
+        threadId = omp_get_thread_num();
+#endif
+        // Use input seed + thread ID for reproducibility
+        rng_local.seed(static_cast<uint64_t>(randomSeed) + threadId * 137);
         rngSeeded = true;
     }
 }

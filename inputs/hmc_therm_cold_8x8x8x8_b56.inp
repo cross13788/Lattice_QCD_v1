@@ -1,0 +1,55 @@
+# Test 3e: HMC thermalization from COLD start
+# 8^4 lattice, beta=5.6, kappa=0.12
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 8
+nY: 8
+nZ: 8
+nT: 8
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 5.6
+Update Method: hmc
+Metropolis Epsilon: 0.2
+Start Type: cold
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 0
+Number of Configurations: 5
+Sweeps Between Measurements: 2
+Overrelaxation Sweeps: 3
+Configuration Save Frequency: 10
+Save Binary Configs: off
+Random Seed: 44444
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: off
+Wilson Loop R Max: 2
+Wilson Loop T Max: 2
+Measure Polyakov: on
+Measure Correlators: off
+Verbose Output: off
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.12
+Wilson r: 1.0
+CG Max Iterations: 500
+CG Tolerance: 1.0e-8
+Solver Type: bicgstab
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 10
+MD Step Size: 0.02
+HMC Trajectories: 200

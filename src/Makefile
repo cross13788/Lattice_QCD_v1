@@ -62,9 +62,11 @@ PHASE3_OBJECTS = exp_su3_algebra.o          \
                  hmc_trajectory.o           \
                  hmc_driver.o
 
+VIZ_OBJECTS = compute_action_density.o
+
 MAIN_OBJECT = lqcd_main.o
 
-NOBJECTS = $(MODULE_OBJECTS) $(PHASE0_OBJECTS) $(PHASE1_OBJECTS) $(PHASE2_OBJECTS) $(PHASE3_OBJECTS) $(MAIN_OBJECT)
+NOBJECTS = $(MODULE_OBJECTS) $(PHASE0_OBJECTS) $(PHASE1_OBJECTS) $(PHASE2_OBJECTS) $(PHASE3_OBJECTS) $(VIZ_OBJECTS) $(MAIN_OBJECT)
 
 #-----------------------------------------------
 # Build targets
@@ -109,6 +111,9 @@ $(PHASE2_OBJECTS): constants_module.hpp input_module.hpp su3_module.hpp \
 $(PHASE3_OBJECTS): constants_module.hpp input_module.hpp su3_module.hpp \
                    lattice_module.hpp colorspinor_module.hpp \
                    gamma_matrices.hpp interfaces_module.hpp
+
+$(VIZ_OBJECTS): constants_module.hpp input_module.hpp su3_module.hpp \
+                lattice_module.hpp interfaces_module.hpp
 
 $(MAIN_OBJECT): constants_module.hpp input_module.hpp su3_module.hpp \
                 lattice_module.hpp colorspinor_module.hpp \

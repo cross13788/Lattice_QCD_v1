@@ -43,6 +43,17 @@ void static_potential(const real_t* wilsonLoops, int rMax, int tMax, real_t* pot
 void jackknife_analysis(const real_t* data, int nData, real_t& mean, real_t& error);
 
 //===========================================================
+//  ACTION DENSITY & COOLING (Visualization)
+//===========================================================
+void compute_action_density(const SU3matrix* gaugeField, real_t* actionDensity);
+void write_action_density(const real_t* actionDensity, int configNum,
+                          int coolStep, const char* directory);
+void ape_smearing_step(SU3matrix* gaugeField, real_t alpha);
+void cooling_sweep(SU3matrix* gaugeField, real_t* actionDensity,
+                   int configNum, int nCool, real_t alpha,
+                   const char* directory);
+
+//===========================================================
 //  I/O (Phase 1)
 //===========================================================
 void write_gauge_config(const SU3matrix* gaugeField, int configNum, const char* directory);

@@ -15,6 +15,7 @@
 #include "interfaces_module.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 void generate_configurations(SU3matrix* gaugeField)
@@ -64,6 +65,18 @@ void generate_configurations(SU3matrix* gaugeField)
     }
 
 //-----------------------------------------------
+//   Allocate action density storage
+//-----------------------------------------------
+    real_t* actionDensityField = nullptr;
+    if (measureActionDensity) {
+        actionDensityField = (real_t*)calloc(latticeVolume, sizeof(real_t));
+        printf("Action density measurement enabled");
+        if (nCoolingSteps > 0)
+            printf(" with %d cooling steps (alpha=%.2f)", nCoolingSteps, coolingAlpha);
+        printf("\n\n");
+    }
+
+//-----------------------------------------------
 //   Configuration generation loop
 //-----------------------------------------------
     for (int config = 1; config <= nConfig; config++) {
@@ -95,6 +108,25 @@ void generate_configurations(SU3matrix* gaugeField)
                             config, r + 1, t + 1,
                             wilsonLoops[r * wilsonLoopTmax + t]);
                 }
+            }
+        }
+
+        // Measure per-site action density (for visualization)
+        if (measureActionDensity) {
+            if (nCoolingSteps > 0) {
+                // Make a copy for cooling (don't modify the original field)
+                int nLinks = latticeVolume * 4;
+                SU3matrix* coolField = new SU3matrix[nLinks];
+                memcpy(coolField, gaugeField, nLinks * sizeof(SU3matrix));
+                cooling_sweep(coolField, actionDensityField, config,
+                              nCoolingSteps, coolingAlpha,
+                              outputDirectory.c_str());
+                delete[] coolField;
+            } else {
+                // Just write uncooled action density
+                compute_action_density(gaugeField, actionDensityField);
+                write_action_density(actionDensityField, config, -1,
+                                     outputDirectory.c_str());
             }
         }
 
@@ -184,6 +216,7 @@ void generate_configurations(SU3matrix* gaugeField)
     if (polyFile) fclose(polyFile);
     if (wloopFile) fclose(wloopFile);
     if (wilsonLoops) free(wilsonLoops);
+    if (actionDensityField) free(actionDensityField);
 
     printf("\nConfiguration generation complete.\n");
     printf("Output saved to: %s/\n\n", outputDirectory.c_str());

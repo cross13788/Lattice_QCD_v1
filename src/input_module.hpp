@@ -58,6 +58,9 @@ extern int wilsonLoopRmax;              // Max R for Wilson loops
 extern int wilsonLoopTmax;              // Max T for Wilson loops
 extern bool measurePolyakov;
 extern bool measureCorrelators;         // Phase 2
+extern bool measureActionDensity;       // Per-site action density
+extern int nCoolingSteps;               // APE cooling steps (0 = no cooling)
+extern real_t coolingAlpha;             // APE smearing fraction
 
 //-----------------------------------------------
 // I/O parameters

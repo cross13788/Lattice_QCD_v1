@@ -55,6 +55,9 @@ int wilsonLoopRmax = 8;
 int wilsonLoopTmax = 8;
 bool measurePolyakov = true;
 bool measureCorrelators = false;
+bool measureActionDensity = false;
+int nCoolingSteps = 0;
+real_t coolingAlpha = 0.45;
 
 //-----------------------------------------------
 // I/O parameters
