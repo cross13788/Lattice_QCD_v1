@@ -158,13 +158,13 @@ def get_adaptive_thresholds(field_3d, n_levels=3):
         p90 = np.percentile(field_3d, 90)
         p97 = np.percentile(field_3d, 97)
         thresholds = [p75, p90, p97]
-        colors = ['#FF6600', '#FF2200', '#FFEE00']
+        colors = ['#66BBEE', '#33CC55', '#DD2222']
         alphas = [0.12, 0.25, 0.6]
     else:
         # Partially cooled: instanton-like lumps
         # Use fractions of max to pick out the bumps
         thresholds = [0.15 * vmax, 0.35 * vmax, 0.6 * vmax]
-        colors = ['#4488FF', '#FF6600', '#FFEE00']
+        colors = ['#66BBEE', '#33CC55', '#DD2222']
         alphas = [0.12, 0.3, 0.6]
 
     # Filter out thresholds that are too small to produce surfaces
