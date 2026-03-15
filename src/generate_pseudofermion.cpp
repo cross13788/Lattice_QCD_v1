@@ -52,9 +52,9 @@ void generate_pseudofermion(const SU3matrix* gaugeField,
     }
 
 //-----------------------------------------------
-//   φ = D† ξ
+//   φ = D† ξ  (uses clover operator when enabled)
 //-----------------------------------------------
-    wilson_dirac_dagger(gaugeField, xi, phi, vol);
+    apply_dirac_dagger(gaugeField, xi, phi, vol);
 
 //-----------------------------------------------
 //   Cleanup

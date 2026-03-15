@@ -72,6 +72,9 @@ void leapfrog_integrator(SU3matrix* gaugeField,
             su3_exp_update(stepSize, momentum[idx], gaugeField[idx]);
         }
 
+        // Invalidate clover cache after gauge field change
+        if (useClover) invalidate_clover_cache();
+
         // Full momentum update (except last step = half)
         if (step < nSteps - 1) {
             compute_gauge_force(gaugeField, forceGauge, vol);

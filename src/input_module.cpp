@@ -39,6 +39,8 @@ real_t wilsonR = 1.0;
 int cgMaxIter = 1000;
 real_t cgTolerance = 1.0e-10;
 std::string solverType = "bicgstab";
+real_t c_sw = 0.0;
+bool useClover = false;
 
 //-----------------------------------------------
 // HMC parameters (Phase 3)
@@ -58,6 +60,9 @@ bool measureCorrelators = false;
 bool measureActionDensity = false;
 int nCoolingSteps = 0;
 real_t coolingAlpha = 0.45;
+bool measureWilsonFlow = false;
+real_t flowStepSize = 0.01;
+real_t maxFlowTime = 1.0;
 
 //-----------------------------------------------
 // I/O parameters

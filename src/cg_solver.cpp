@@ -32,7 +32,7 @@ int cg_solver(const SU3matrix* gaugeField,
 //-----------------------------------------------
 //   Compute RHS: Ddagb = D^dag * b
 //-----------------------------------------------
-    wilson_dirac_dagger(gaugeField, b, Ddagb, vol);
+    apply_dirac_dagger(gaugeField, b, Ddagb, vol);
 
 //-----------------------------------------------
 //   Initial residual: r = Ddagb - A*x
@@ -63,8 +63,8 @@ int cg_solver(const SU3matrix* gaugeField,
     for (iter = 0; iter < cgMaxIter; iter++) {
 
         // Ap = D^dag D * p
-        wilson_dirac_operator(gaugeField, p, tmp, vol);
-        wilson_dirac_dagger(gaugeField, tmp, Ap, vol);
+        apply_dirac(gaugeField, p, tmp, vol);
+        apply_dirac_dagger(gaugeField, tmp, Ap, vol);
 
         // alpha = (r, r) / (p, Ap)
         complex_t pAp = field_dot(p, Ap, vol);

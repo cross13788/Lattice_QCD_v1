@@ -42,6 +42,8 @@ extern real_t wilsonR;                  // Wilson parameter (usually 1)
 extern int cgMaxIter;                   // Max CG iterations
 extern real_t cgTolerance;              // CG residual tolerance
 extern std::string solverType;          // "cg" or "bicgstab"
+extern real_t c_sw;                     // Clover coefficient (0 = no clover)
+extern bool useClover;                  // Enable clover improvement
 
 //-----------------------------------------------
 // HMC parameters (Phase 3)
@@ -61,6 +63,9 @@ extern bool measureCorrelators;         // Phase 2
 extern bool measureActionDensity;       // Per-site action density
 extern int nCoolingSteps;               // APE cooling steps (0 = no cooling)
 extern real_t coolingAlpha;             // APE smearing fraction
+extern bool measureWilsonFlow;          // Wilson flow measurement
+extern real_t flowStepSize;             // Flow integration step size
+extern real_t maxFlowTime;              // Maximum flow time
 
 //-----------------------------------------------
 // I/O parameters

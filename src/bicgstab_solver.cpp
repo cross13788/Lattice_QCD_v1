@@ -79,7 +79,7 @@ int bicgstab_solver(const SU3matrix* gaugeField,
     for (iter = 0; iter < cgMaxIter; iter++) {
 
         // v = A * p
-        wilson_dirac_operator(gaugeField, p, v, vol);
+        apply_dirac(gaugeField, p, v, vol);
 
         // alpha = rho / (r0, v)
         complex_t r0v = field_dot(r0, v, vol);
@@ -108,7 +108,7 @@ int bicgstab_solver(const SU3matrix* gaugeField,
         }
 
         // t = A * s
-        wilson_dirac_operator(gaugeField, s, t, vol);
+        apply_dirac(gaugeField, s, t, vol);
 
         // omega = (t, s) / (t, t)
         complex_t ts = field_dot(t, s, vol);

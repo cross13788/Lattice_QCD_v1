@@ -1,0 +1,59 @@
+# HMC dynamical fermion run: 16^3 x 32, beta=5.6, kappa=0.155
+# Unimproved Wilson fermions
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 16
+nY: 16
+nZ: 16
+nT: 32
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 5.6
+Update Method: hmc
+Metropolis Epsilon: 0.2
+Start Type: hot
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 200
+Number of Configurations: 100
+Sweeps Between Measurements: 1
+Overrelaxation Sweeps: 0
+Configuration Save Frequency: 5
+Save Binary Configs: on
+Random Seed: 98765
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: off
+Wilson Loop R Max: 4
+Wilson Loop T Max: 8
+Measure Polyakov: on
+Measure Correlators: on
+Measure Action Density: off
+Measure Wilson Flow: on
+Flow Step Size: 0.01
+Max Flow Time: 2.0
+Verbose Output: off
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.155
+Wilson r: 1.0
+CG Max Iterations: 10000
+CG Tolerance: 1.0e-12
+Solver Type: bicgstab
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 40
+MD Step Size: 0.025
+HMC Trajectories: 500

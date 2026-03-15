@@ -648,6 +648,168 @@ The code is built via \code{src/Makefile} with \code{g++ -std=c++17 -O3 -march=n
 
 
 %=============================================================================
+\section{Wilson Flow and Scale Setting}
+\label{sec:wilson_flow}
+%=============================================================================
+
+\subsection{Gradient Flow}
+
+The Wilson (gradient) flow~\cite{Luscher2010} smoothly evolves the gauge field along a fictitious flow time~$t$:
+\begin{equation}
+\label{eq:flow}
+\frac{\dd V_\mu(x, t)}{\dd t} = -g_0^2 \frac{\partial S_W[V]}{\partial V_\mu(x, t)} \cdot V_\mu(x, t), \qquad V_\mu(x, 0) = U_\mu(x),
+\end{equation}
+where $S_W$ is the Wilson plaquette action. The flow drives the field toward classical solutions, suppressing UV fluctuations at scales below $\sqrt{8t}$ while preserving long-distance physics. Composite operators evaluated on flowed fields are automatically renormalized~\cite{Luscher2011}.
+
+\subsection{Runge--Kutta Integration}
+
+We discretize the flow using L\"uscher's third-order Runge--Kutta (RK3) scheme~\cite{Luscher2010}. Defining $Z = \epsilon \cdot (\beta/N_c) [V \cdot \text{staple}]_{\mathrm{TA}}$ as the projected force, a single step $V \to V'$ proceeds as:
+\begin{align}
+W_0 &= V, \qquad Z_0 = \epsilon \, S'(W_0) \\
+W_1 &= \exp\!\big(\tfrac{1}{4} Z_0\big) \, W_0, \qquad Z_1 = \epsilon \, S'(W_1) \\
+W_2 &= \exp\!\big(\tfrac{8}{9} Z_1 - \tfrac{17}{36} Z_0\big) \, W_1, \qquad Z_2 = \epsilon \, S'(W_2) \\
+V' &= \exp\!\big(\tfrac{3}{4} Z_2 - \tfrac{8}{9} Z_1 + \tfrac{17}{36} Z_0\big) \, W_2.
+\end{align}
+This scheme is $\mathcal{O}(\epsilon^3)$ accurate per step, time-reversible (negating $\epsilon$ returns to the original field up to machine precision), and preserves the gauge group exactly through the use of the matrix exponential. Implementation: \code{wilson\_flow.cpp}.
+
+\subsection{Energy Density}
+
+We measure two definitions of the energy density at each flow time~$t$:
+\begin{align}
+\label{eq:energy_plaq}
+E_{\mathrm{plaq}}(t) &= \frac{2}{V} \sum_{x, \mu > \nu} \left(1 - \frac{1}{N_c} \ReTr P_{\mu\nu}(x,t)\right), \\
+\label{eq:energy_clover}
+E_{\mathrm{clov}}(t) &= -\frac{1}{V} \sum_{x, \mu > \nu} \ReTr \, F_{\mu\nu}(x,t)^2,
+\end{align}
+where $F_{\mu\nu}$ is the clover-definition field strength tensor (Section~\ref{sec:field_strength}). The clover definition has $\mathcal{O}(a^2)$-improved discretization errors and is preferred for precision scale setting.
+
+\subsection{Scale Setting: $t_0$ and $w_0$}
+
+The reference scale $t_0$ is defined by~\cite{Luscher2010}:
+\begin{equation}
+\label{eq:t0}
+t^2 \langle E(t) \rangle \big|_{t = t_0} = 0.3.
+\end{equation}
+The physical value $\sqrt{8 t_0} \approx 0.3\,\mathrm{fm}$ provides a precise non-perturbative scale. The related scale $w_0$~\cite{BMW2012} is defined via the logarithmic derivative:
+\begin{equation}
+\label{eq:w0}
+W(t) \equiv t \frac{\dd}{\dd t}\big[t^2 \langle E(t) \rangle\big]\bigg|_{t = w_0^2} = 0.3.
+\end{equation}
+The quantity $w_0$ has smaller statistical errors than $\sqrt{t_0}$ because the derivative suppresses long-range correlations. Both $t_0/a^2$ and $w_0/a$ increase with $\beta$ (finer lattice), enabling continuum extrapolation. Implementation: \code{analysis/scale\_setting.py}.
+
+
+%=============================================================================
+\section{Clover-Improved Wilson Fermions}
+\label{sec:clover}
+%=============================================================================
+
+\subsection{$\mathcal{O}(a)$ Improvement}
+
+The standard Wilson action has discretization errors of $\mathcal{O}(a)$ arising from the dimension-5 Wilson term. The Sheikholeslami--Wohlert (clover) improvement~\cite{SW1985} adds a dimension-5 counterterm that eliminates these errors:
+\begin{equation}
+\label{eq:clover_dirac}
+D_{\mathrm{clover}} = D_W + \frac{i c_{\mathrm{SW}}}{4} \sum_{\mu < \nu} \sigma_{\mu\nu} \, \hat{F}_{\mu\nu}(x),
+\end{equation}
+where $\sigma_{\mu\nu} = \frac{i}{2}[\gamma_\mu, \gamma_\nu]$ and $c_{\mathrm{SW}}$ is the improvement coefficient. With $c_{\mathrm{SW}}$ tuned appropriately (perturbatively or non-perturbatively), all on-shell observables are improved to $\mathcal{O}(a^2)$.
+
+At tree level $c_{\mathrm{SW}} = 1$. Non-perturbative determinations~\cite{LuscherSintSommerWeisz1997} give $c_{\mathrm{SW}} \approx 1.769$ at $\beta = 6.0$ for quenched QCD.
+
+\subsection{Field Strength Tensor}
+\label{sec:field_strength}
+
+The lattice field strength tensor $\hat{F}_{\mu\nu}(x)$ is constructed from the four-leaf clover:
+\begin{equation}
+\label{eq:clover_Fmunu}
+Q_{\mu\nu}(x) = P_{\mu,\nu}(x) + P_{\nu,-\mu}(x) + P_{-\mu,-\nu}(x) + P_{-\nu,\mu}(x),
+\end{equation}
+where $P_{\mu,\nu}(x)$ denotes the plaquette starting at $x$ in the $(\mu,\nu)$ direction, and the other three terms are the plaquettes in the remaining orientations sharing the point $x$. The field strength is obtained by anti-Hermitian projection:
+\begin{equation}
+\hat{F}_{\mu\nu}(x) = \frac{Q_{\mu\nu}(x) - Q_{\mu\nu}^\dagger(x)}{8}.
+\end{equation}
+This is automatically traceless and anti-Hermitian. The same $\hat{F}_{\mu\nu}$ is used both in the clover Dirac operator and in the clover definition of the energy density (Eq.~\ref{eq:energy_clover}). Implementation: \code{compute\_field\_strength\_tensor()} in \code{wilson\_flow.cpp}, reused by \code{clover\_term.cpp}.
+
+\subsection{Block Structure}
+
+In the DeGrand--Rossi basis, the $\sigma_{\mu\nu}$ matrices are block-diagonal: they act within the upper block (spin 0,1) and lower block (spin 2,3) independently. Combined with $N_c = 3$ colors, the clover term at each site consists of two Hermitian $6 \times 6$ matrices (upper and lower blocks in spin-color space):
+\begin{equation}
+A(x) = \frac{i c_{\mathrm{SW}}}{4} \sum_{\mu < \nu} \sigma_{\mu\nu} \otimes \hat{F}_{\mu\nu}(x) = \begin{pmatrix} A^{(+)}(x) & 0 \\ 0 & A^{(-)}(x) \end{pmatrix}.
+\end{equation}
+This block structure is exploited for storage efficiency and enables the clover term to be applied with $2 \times 6^2 = 72$ multiply-adds per site rather than the $12^2 = 144$ required for a general $12 \times 12$ matrix.
+
+Data structures: \code{CloverBlock} (one $6 \times 6$ complex matrix), \code{CloverField} (upper + lower blocks per site), defined in \code{clover\_module.hpp}.
+
+\subsection{Even--Odd Preconditioning with Clover}
+
+With the clover term, the diagonal blocks of the Dirac operator become non-trivial:
+\begin{equation}
+D_{\mathrm{clover}} = \begin{pmatrix} 1 + A_{ee} & -\kappa D_{eo} \\ -\kappa D_{oe} & 1 + A_{oo} \end{pmatrix},
+\end{equation}
+and the preconditioned operator becomes:
+\begin{equation}
+\hat{D} = 1 - \kappa^2 (1 + A_{ee})^{-1} D_{eo} (1 + A_{oo})^{-1} D_{oe}.
+\end{equation}
+The inversions $(1 + A_{ee/oo})^{-1}$ are performed as $6 \times 6$ dense matrix inversions (pivoted LU decomposition) at each site, precomputed before the solver. Implementation: \code{clover\_even\_odd.cpp}, \code{invert\_clover\_block()} in \code{clover\_term.cpp}.
+
+\subsection{Dispatch Wrappers}
+
+To avoid modifying the solver interfaces, the clover Dirac operator is accessed through dispatch wrappers:
+\begin{itemize}
+\item \code{apply\_dirac()}: checks the global flag \code{useClover} and routes to either \code{wilson\_dirac\_operator()} or \code{clover\_dirac\_operator()}.
+\item \code{apply\_dirac\_dagger()}: analogous for the adjoint.
+\end{itemize}
+The wrappers manage an internal cache of the \code{CloverField} that is recomputed when the gauge field changes (signaled by \code{invalidate\_clover\_cache()} after each gauge field update in the leapfrog integrator). Implementation: \code{clover\_dirac\_operator.cpp}.
+
+\subsection{Clover Fermion Force}
+
+For HMC with clover improvement, the molecular dynamics force acquires an additional contribution from the derivative of the clover term with respect to the gauge links:
+\begin{equation}
+F_\mu^{\mathrm{clover}}(x) = -c_{\mathrm{SW}} \sum_{\nu \neq \mu} \frac{\partial \hat{F}_{\mu\nu}}{\partial U_\mu(x)} \cdot \frac{\partial S_{\mathrm{PF}}}{\partial \hat{F}_{\mu\nu}}.
+\end{equation}
+The derivative $\partial \hat{F}_{\mu\nu}/\partial U_\mu(x)$ involves staple-like contributions from the four leaves of the clover that pass through the link $U_\mu(x)$. The site-local factor $\partial S_{\mathrm{PF}}/\partial \hat{F}_{\mu\nu}$ is constructed from the solution vectors $X = (D^\dagger D)^{-1}\phi$ and $Y = DX$. This force is added to the Wilson hopping force in the leapfrog integrator. Implementation: \code{clover\_fermion\_force.cpp}.
+
+
+%=============================================================================
+\section{Autocorrelation Analysis}
+\label{sec:autocorrelation}
+%=============================================================================
+
+\subsection{Integrated Autocorrelation Time}
+
+Monte Carlo measurements are correlated in Markov chain time. The normalized autocorrelation function of an observable $\mathcal{O}$ is:
+\begin{equation}
+C(t) = \frac{\langle \mathcal{O}_i \, \mathcal{O}_{i+t} \rangle - \langle \mathcal{O} \rangle^2}{\langle \mathcal{O}^2 \rangle - \langle \mathcal{O} \rangle^2},
+\end{equation}
+and the integrated autocorrelation time is:
+\begin{equation}
+\label{eq:tau_int}
+\tau_{\mathrm{int}} = \half + \sum_{t=1}^{\infty} C(t).
+\end{equation}
+The effective number of independent measurements is $N_{\mathrm{eff}} = N / (2\tau_{\mathrm{int}})$, and the true statistical error is a factor $\sqrt{2\tau_{\mathrm{int}}}$ larger than the naive error.
+
+\subsection{Madras--Sokal Windowing}
+
+The sum in Eq.~\eqref{eq:tau_int} must be truncated at a finite window $W$. The naive approach (truncate at the first negative $C(t)$) systematically underestimates $\tau_{\mathrm{int}}$ when the autocorrelation function oscillates or has a long tail.
+
+The Madras--Sokal self-consistent windowing procedure~\cite{MadrasSokal1988} determines $W$ by requiring:
+\begin{equation}
+\label{eq:ms_window}
+W = c \cdot \tau_{\mathrm{int}}(W), \qquad c \approx 6,
+\end{equation}
+where $\tau_{\mathrm{int}}(W) = \frac{1}{2} + \sum_{t=1}^{W} C(t)$ is the running estimate. The smallest $W$ satisfying this self-consistency condition is used. The constant $c \approx 6$ balances the bias from truncation against the variance from including noisy estimates of $C(t)$ at large $t$.
+
+\subsection{Binned Jackknife}
+
+Given $\tau_{\mathrm{int}}$, the optimal jackknife bin size is $B = \lceil 2\tau_{\mathrm{int}} \rceil$. The binned jackknife procedure:
+\begin{enumerate}
+\item Divide the $N$ measurements into $N_B = \lfloor N/B \rfloor$ bins, each containing $B$ consecutive measurements averaged together.
+\item Apply the standard delete-1 jackknife to the $N_B$ binned values.
+\end{enumerate}
+For sufficiently large $B$, the binned data are approximately independent and the jackknife error is unbiased. The error ratio $\sigma_{\mathrm{binned}}/\sigma_{\mathrm{naive}} \geq 1$ provides a diagnostic: values significantly greater than 1 indicate that naive errors are underestimated.
+
+Implementation: \code{analysis/autocorrelation\_analysis.py} provides the Madras--Sokal windowing and generates diagnostic plots. The analysis scripts \code{spectroscopy.py} and \code{static\_potential.py} use binned jackknife with the measured optimal bin size.
+
+
+%=============================================================================
 % References
 %=============================================================================
 
@@ -697,6 +859,40 @@ C.~Gattringer and C.~B.~Lang,
 H.~J.~Rothe,
 \textit{Lattice Gauge Theories: An Introduction}, 4th ed.\
 (World Scientific, Singapore, 2012).
+
+\bibitem{Luscher2010}
+M.~L\"uscher,
+``Properties and uses of the Wilson flow in lattice QCD,''
+JHEP \textbf{1008}, 071 (2010)
+[arXiv:1006.4518].
+
+\bibitem{Luscher2011}
+M.~L\"uscher and P.~Weisz,
+``Perturbative analysis of the gradient flow in non-abelian gauge theories,''
+JHEP \textbf{1102}, 051 (2011)
+[arXiv:1101.0963].
+
+\bibitem{BMW2012}
+S.~Borsanyi \textit{et al.}\ (BMW Collaboration),
+``High-precision scale setting in lattice QCD,''
+JHEP \textbf{1209}, 010 (2012)
+[arXiv:1203.4469].
+
+\bibitem{SW1985}
+B.~Sheikholeslami and R.~Wohlert,
+``Improved continuum limit lattice action for QCD with Wilson fermions,''
+Nucl.\ Phys.\ B \textbf{259}, 572 (1985).
+
+\bibitem{LuscherSintSommerWeisz1997}
+M.~L\"uscher, S.~Sint, R.~Sommer, and H.~Wittig,
+``Non-perturbative determination of the axial current normalization constant in $O(a)$ improved lattice QCD,''
+Nucl.\ Phys.\ B \textbf{491}, 344 (1997)
+[arXiv:hep-lat/9611015].
+
+\bibitem{MadrasSokal1988}
+N.~Madras and A.~D.~Sokal,
+``The pivot algorithm: A highly efficient Monte Carlo method for the self-avoiding walk,''
+J.\ Stat.\ Phys.\ \textbf{50}, 109 (1988).
 
 \end{thebibliography}
 

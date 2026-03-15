@@ -11,6 +11,10 @@
 #include "su3_module.hpp"
 #include "colorspinor_module.hpp"
 
+// Forward declaration for clover types
+struct CloverField;
+struct CloverBlock;
+
 //===========================================================
 //  INITIALIZATION & SETUP
 //===========================================================
@@ -133,6 +137,68 @@ void effective_mass_cosh(const real_t* corr, real_t* meff, int nT_local);
 void write_correlators(int configNum, int channel,
                        const real_t* corr, const real_t* meff,
                        const char* directory);
+
+//===========================================================
+//  WILSON FLOW (Scale Setting)
+//===========================================================
+void wilson_flow_step(SU3matrix* gaugeField, real_t epsilon, int vol);
+real_t wilson_flow_energy_plaquette(const SU3matrix* gaugeField, int vol);
+void compute_field_strength_tensor(const SU3matrix* gaugeField,
+                                   int site, int mu, int nu,
+                                   SU3matrix& Fmunu);
+real_t wilson_flow_energy_clover(const SU3matrix* gaugeField, int vol);
+void wilson_flow_driver(SU3matrix* gaugeField, int vol);
+real_t wilson_flow_reversibility_test(const SU3matrix* gaugeField, int vol);
+
+//===========================================================
+//  CLOVER IMPROVEMENT (Phase 2+)
+//===========================================================
+
+// Sigma matrices initialization
+void initialize_sigma_matrices();
+
+// Clover field computation
+void compute_clover_field(const SU3matrix* gaugeField,
+                          CloverField* cloverField, int vol);
+void apply_clover_term(const CloverField* cloverField,
+                       const ColorSpinor* psi,
+                       ColorSpinor* result, int site);
+void invert_clover_block(CloverBlock& block);
+void compute_clover_inverse(const CloverField* cloverField,
+                            CloverField* cloverFieldInv, int vol);
+
+// Clover Dirac operators
+void clover_dirac_operator(const SU3matrix* gaugeField,
+                           const CloverField* cloverField,
+                           const ColorSpinor* psi,
+                           ColorSpinor* result, int vol);
+void clover_dirac_dagger(const SU3matrix* gaugeField,
+                         const CloverField* cloverField,
+                         const ColorSpinor* psi,
+                         ColorSpinor* result, int vol);
+
+// Dispatch wrappers (check useClover, manage clover cache)
+void apply_dirac(const SU3matrix* gaugeField,
+                 const ColorSpinor* psi,
+                 ColorSpinor* result, int vol);
+void apply_dirac_dagger(const SU3matrix* gaugeField,
+                        const ColorSpinor* psi,
+                        ColorSpinor* result, int vol);
+void invalidate_clover_cache();
+void free_clover_cache();
+
+// Clover even-odd preconditioning
+void apply_clover_preconditioned_operator(
+    const SU3matrix* gaugeField,
+    const CloverField* cloverFieldInv,
+    const ColorSpinor* psi,
+    ColorSpinor* result, int vol);
+
+// Clover fermion force for HMC
+void compute_clover_force(const SU3matrix* gaugeField,
+                          const ColorSpinor* X,
+                          const ColorSpinor* Y,
+                          SU3matrix* force, int vol);
 
 //===========================================================
 //  HMC — DYNAMICAL FERMIONS (Phase 3)

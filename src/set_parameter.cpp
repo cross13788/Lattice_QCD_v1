@@ -72,6 +72,9 @@ void set_parameter(const char* section, const char* key, const char* value)
         else if (str_eq(key, "Cooling Steps"))     { nCoolingSteps = atoi(value); }
         else if (str_eq(key, "Cooling Alpha"))     { coolingAlpha = atof(value); }
         else if (str_eq(key, "Verbose Output"))    { verboseOutput = parse_bool(value); }
+        else if (str_eq(key, "Measure Wilson Flow")) { measureWilsonFlow = parse_bool(value); }
+        else if (str_eq(key, "Flow Step Size"))    { flowStepSize = atof(value); }
+        else if (str_eq(key, "Max Flow Time"))     { maxFlowTime = atof(value); }
         else { printf("  Warning: Unknown key '%s' in [%s]\n", key, section); }
     }
 
@@ -84,6 +87,8 @@ void set_parameter(const char* section, const char* key, const char* value)
         else if (str_eq(key, "CG Max Iterations")) { cgMaxIter = atoi(value); }
         else if (str_eq(key, "CG Tolerance"))    { cgTolerance = atof(value); }
         else if (str_eq(key, "Solver Type"))     { solverType = value; }
+        else if (str_eq(key, "Clover Coefficient")) { c_sw = atof(value); useClover = (c_sw != 0.0); }
+        else if (str_eq(key, "Use Clover"))        { useClover = parse_bool(value); }
         else { printf("  Warning: Unknown key '%s' in [%s]\n", key, section); }
     }
 

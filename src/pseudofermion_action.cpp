@@ -63,9 +63,9 @@ real_t compute_pseudofermion_action(const SU3matrix* gaugeField,
     real_t rr0 = rr;
 
     for (int iter = 0; iter < cgMaxIter; iter++) {
-        // Ap = D†D p
-        wilson_dirac_operator(gaugeField, p, tmp, vol);
-        wilson_dirac_dagger(gaugeField, tmp, Ap, vol);
+        // Ap = D†D p (uses clover operator when enabled)
+        apply_dirac(gaugeField, p, tmp, vol);
+        apply_dirac_dagger(gaugeField, tmp, Ap, vol);
 
         // alpha = (r,r) / (p, Ap)
         complex_t pAp = field_dot(p, Ap, vol);

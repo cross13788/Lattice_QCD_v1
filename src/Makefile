@@ -39,7 +39,8 @@ PHASE1_OBJECTS = initialize_gauge_field.o  \
                  write_gauge_config.o      \
                  read_gauge_config.o       \
                  write_observables.o       \
-                 jackknife_analysis.o
+                 jackknife_analysis.o      \
+                 wilson_flow.o
 
 PHASE2_OBJECTS = wilson_dirac_operator.o    \
                  wilson_dirac_dagger.o      \
@@ -50,7 +51,11 @@ PHASE2_OBJECTS = wilson_dirac_operator.o    \
                  compute_propagator.o       \
                  meson_correlator.o         \
                  effective_mass.o           \
-                 write_correlators.o
+                 write_correlators.o        \
+                 clover_term.o              \
+                 clover_dirac_operator.o    \
+                 clover_even_odd.o          \
+                 clover_fermion_force.o
 
 PHASE3_OBJECTS = exp_su3_algebra.o          \
                  conjugate_momentum.o       \
@@ -107,6 +112,8 @@ $(PHASE1_OBJECTS): constants_module.hpp input_module.hpp su3_module.hpp \
 $(PHASE2_OBJECTS): constants_module.hpp input_module.hpp su3_module.hpp \
                    lattice_module.hpp colorspinor_module.hpp \
                    gamma_matrices.hpp interfaces_module.hpp
+
+clover_term.o clover_dirac_operator.o clover_even_odd.o clover_fermion_force.o: clover_module.hpp
 
 $(PHASE3_OBJECTS): constants_module.hpp input_module.hpp su3_module.hpp \
                    lattice_module.hpp colorspinor_module.hpp \

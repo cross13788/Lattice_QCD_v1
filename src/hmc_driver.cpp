@@ -97,6 +97,11 @@ void hmc_driver(SU3matrix* gaugeField)
             fprintf(polyFile, "%6d  %.12f\n", traj, polyakovAvg);
         }
 
+        // Wilson flow measurement
+        if (measureWilsonFlow) {
+            wilson_flow_driver(gaugeField, latticeVolume);
+        }
+
         // Meson correlators (if enabled)
         if (measureCorrelators) {
             ColorSpinor* propagator = new ColorSpinor[12 * latticeVolume];

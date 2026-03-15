@@ -1,0 +1,60 @@
+# Quenched spectroscopy with clover: 16^3 x 32, beta=6.0, kappa=0.150, c_sw=1.769
+# Non-perturbative clover coefficient for beta=6.0 (Luscher et al.)
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 16
+nY: 16
+nZ: 16
+nT: 32
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 6.0
+Update Method: heatbath
+Metropolis Epsilon: 0.2
+Start Type: hot
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 2000
+Number of Configurations: 200
+Sweeps Between Measurements: 20
+Overrelaxation Sweeps: 5
+Configuration Save Frequency: 10
+Save Binary Configs: on
+Random Seed: 76543
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: off
+Wilson Loop R Max: 4
+Wilson Loop T Max: 8
+Measure Polyakov: on
+Measure Correlators: on
+Measure Action Density: off
+Measure Wilson Flow: on
+Flow Step Size: 0.01
+Max Flow Time: 2.0
+Verbose Output: off
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.150
+Wilson r: 1.0
+CG Max Iterations: 10000
+CG Tolerance: 1.0e-12
+Solver Type: bicgstab
+Clover Coefficient: 1.769
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 20
+MD Step Size: 0.01
+HMC Trajectories: 100

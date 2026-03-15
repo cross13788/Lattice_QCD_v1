@@ -65,6 +65,8 @@ int main(int argc, char* argv[])
         printf("  Wilson r:               %.1f\n", wilsonR);
         printf("  Solver:                 %s\n", solverType.c_str());
         printf("  CG tolerance:           %.1e\n", cgTolerance);
+        if (useClover)
+            printf("  Clover c_sw:            %.6f\n", c_sw);
     }
     if (updateMethod == "hmc") {
         printf("  MD steps:               %d\n", nMDsteps);
@@ -87,6 +89,13 @@ int main(int argc, char* argv[])
 //   Initialize gamma matrices (Phase 2)
 //-----------------------------------------------
     initialize_gamma_matrices();
+
+//-----------------------------------------------
+//   Initialize sigma matrices (clover improvement)
+//-----------------------------------------------
+    if (useClover) {
+        initialize_sigma_matrices();
+    }
 
 //-----------------------------------------------
 //   Create output directory
@@ -187,6 +196,7 @@ int main(int argc, char* argv[])
 //-----------------------------------------------
 //   Cleanup
 //-----------------------------------------------
+    free_clover_cache();
     free(gaugeField);
     free_lattice_geometry();
 

@@ -64,8 +64,8 @@ void compute_fermion_force(const SU3matrix* gaugeField,
     real_t rr0 = rr;
 
     for (int iter = 0; iter < cgMaxIter; iter++) {
-        wilson_dirac_operator(gaugeField, p, tmp, vol);
-        wilson_dirac_dagger(gaugeField, tmp, Ap, vol);
+        apply_dirac(gaugeField, p, tmp, vol);
+        apply_dirac_dagger(gaugeField, tmp, Ap, vol);
 
         complex_t pAp = field_dot(p, Ap, vol);
         real_t alpha = rr / pAp.real();
@@ -89,7 +89,7 @@ void compute_fermion_force(const SU3matrix* gaugeField,
 //   Compute Y = D X  (needed for force)
 //-----------------------------------------------
     ColorSpinor* Y = new ColorSpinor[vol];
-    wilson_dirac_operator(gaugeField, X, Y, vol);
+    apply_dirac(gaugeField, X, Y, vol);
 
 //-----------------------------------------------
 //   Compute fermion force
@@ -196,6 +196,13 @@ void compute_fermion_force(const SU3matrix* gaugeField,
             su3_traceless_antiherm(UM, forceTA);
             su3_scale(complex_t(-2.0 * kappa, 0.0), forceTA, force[idx]);
         }
+    }
+
+//-----------------------------------------------
+//   Clover force contribution (when enabled)
+//-----------------------------------------------
+    if (useClover) {
+        compute_clover_force(gaugeField, X, Y, force, vol);
     }
 
 //-----------------------------------------------

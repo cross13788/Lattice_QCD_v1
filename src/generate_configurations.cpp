@@ -111,6 +111,17 @@ void generate_configurations(SU3matrix* gaugeField)
             }
         }
 
+        // Wilson flow measurement
+        if (measureWilsonFlow) {
+            wilson_flow_driver(gaugeField, latticeVolume);
+
+            // Reversibility test on first configuration only
+            if (config == 1) {
+                real_t revDev = wilson_flow_reversibility_test(gaugeField, latticeVolume);
+                printf("  Wilson flow reversibility deviation: %.6e\n", revDev);
+            }
+        }
+
         // Measure per-site action density (for visualization)
         if (measureActionDensity) {
             if (nCoolingSteps > 0) {

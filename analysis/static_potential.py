@@ -15,7 +15,8 @@ import numpy as np
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from jackknife_analysis import jackknife, jackknife_func
+from jackknife_analysis import jackknife, binned_jackknife, jackknife_func
+from autocorrelation_analysis import madras_sokal_tau_int, optimal_bin_size
 
 try:
     import matplotlib
@@ -89,7 +90,13 @@ def extract_potential(wloop_data, T_pair):
             else:
                 V_jack[i] = V
 
-        V_err = np.sqrt((n - 1) / n * np.sum((V_jack - V)**2))
+        # Use binned jackknife if sufficient data
+        if n > 10:
+            tau, _, _ = madras_sokal_tau_int(V_jack)
+            bin_sz = optimal_bin_size(tau)
+            _, V_err = binned_jackknife(V_jack, bin_sz)
+        else:
+            V_err = np.sqrt((n - 1) / n * np.sum((V_jack - V)**2))
         results.append((R, V, V_err))
 
     return results

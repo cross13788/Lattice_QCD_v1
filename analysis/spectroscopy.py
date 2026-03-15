@@ -21,7 +21,8 @@ from collections import defaultdict
 import glob
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from jackknife_analysis import jackknife, jackknife_func
+from jackknife_analysis import jackknife, binned_jackknife, jackknife_func
+from autocorrelation_analysis import madras_sokal_tau_int, optimal_bin_size
 from effective_mass import read_correlators, cosh_effective_mass
 
 try:
@@ -111,9 +112,14 @@ def get_pion_mass(directory, nT=None):
         t_start = 0
         t_end = n_t
 
-    # Jackknife the plateau average
+    # Jackknife the plateau average with binning for autocorrelations
     plateau_masses = np.mean(m_jack[:, t_start:t_end], axis=1)
-    m_pi, m_pi_err = jackknife(plateau_masses)
+    if len(plateau_masses) > 10:
+        tau, _, _ = madras_sokal_tau_int(plateau_masses)
+        bin_sz = optimal_bin_size(tau)
+        m_pi, m_pi_err = binned_jackknife(plateau_masses, bin_sz)
+    else:
+        m_pi, m_pi_err = jackknife(plateau_masses)
 
     return {
         'mass': m_pi,
