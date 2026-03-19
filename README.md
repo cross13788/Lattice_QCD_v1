@@ -18,6 +18,7 @@ Lattice_QCD_v1 performs non-perturbative QCD calculations on a discrete four-dim
 - Wilson loops and static quark potential extraction
 - APE cooling and action density visualization
 - OpenMP parallelization with checkerboard decomposition
+- Both CPU (OpenMP) and GPU-accelerated (CUDA C++) versions
 
 ### Simulation Phases
 
@@ -29,17 +30,25 @@ Lattice_QCD_v1 performs non-perturbative QCD calculations on a discrete four-dim
 
 ## Requirements
 
+### CPU Version
 - **Compiler:** C++17 (g++ 7.0+)
 - **Parallelization:** OpenMP 4.5+
 - **Optional:** Python 3 with numpy/matplotlib (for analysis scripts)
 - No external QCD libraries required
 
+### GPU Version
+- **Compiler:** NVIDIA HPC SDK (`nvc++`) with CUDA C++ support
+- **Libraries:** cuRAND (for GPU random number generation)
+- **GPU:** NVIDIA GPU with compute capability 7.5+ (Turing/V100 or newer)
+- **Build script auto-detects** GPU compute capability via `nvidia-smi` and GCC toolchain for `nvc++`
+
 ## Quick Start
 
 ```bash
 vim run/lqcd.inp               # Configure lattice, coupling, run type
-./build.sh                     # Build with parallel compilation
-./run.sh                       # Run with OpenMP
+./build.sh cpu                 # Build CPU version (g++ + OpenMP)
+./build.sh gpu                 # Build GPU version (nvc++ + CUDA + cuRAND)
+./run.sh                       # Run with OpenMP (CPU) or on GPU
 ```
 
 ## Input Configuration
@@ -92,8 +101,8 @@ Post-processing scripts in `analysis/`:
 ```
 Lattice_QCD_v1/
 ├── src/                   # C++ source (~50 files)
-│   ├── Makefile           # Build configuration (g++ + OpenMP)
-│   ├── lqcd_main.cpp      # Main program and simulation dispatcher
+│   ├── Makefile           # Build configuration (CPU + GPU targets)
+│   ├── lqcd_main.cpp      # Main program (CPU entry point)
 │   ├── su3_module.*       # SU(3) matrix operations
 │   ├── colorspinor_module.*    # Color-spinor field operations
 │   ├── gamma_matrices.*        # Dirac algebra
@@ -102,6 +111,15 @@ Lattice_QCD_v1/
 │   ├── bicgstab_solver.cpp       # BiCGstab solver
 │   ├── hmc_driver.cpp            # Hybrid Monte Carlo driver
 │   ├── interfaces_module.hpp     # Compile-time function signatures (~80 interfaces)
+│   ├── gpu/               # CUDA C++ GPU kernels (~27 files)
+│   │   ├── lqcd_main_gpu.cpp         # GPU entry point
+│   │   ├── gpu_state.cuh              # Global GPU state (device pointers)
+│   │   ├── su3_device.cuh             # Device-side SU(3) operations
+│   │   ├── heat_bath_gpu.cu           # GPU heat bath updates
+│   │   ├── wilson_dirac_gpu.cu        # GPU Wilson Dirac operator
+│   │   ├── cg_solver_gpu.cu           # GPU conjugate gradient solver
+│   │   ├── hmc_gpu.cu                 # GPU Hybrid Monte Carlo
+│   │   └── *.cu                       # Additional GPU kernels
 │   └── *.cpp              # Additional source files
 ├── run/                   # Runtime directory
 │   └── lqcd.inp           # Input configuration
