@@ -3,19 +3,33 @@
 # Run script for Lattice QCD
 #
 # Usage:
-#   ./run.sh
+#   ./run.sh [cpu|gpu]
+#
+# Default: cpu
 #-----------------------------------------------
 set -e
 
+TARGET="${1:-cpu}"
+
 cd run
 
-if [ ! -f "./lqcd.exe" ]; then
-    echo "Error: lqcd.exe not found in run/. Run ./build.sh first."
-    exit 1
+# Select executable
+if [ "$TARGET" = "gpu" ]; then
+    EXEC="./lqcd_gpu.exe"
+    if [ ! -f "$EXEC" ]; then
+        echo "Error: lqcd_gpu.exe not found in run/. Run ./build.sh gpu first."
+        exit 1
+    fi
+else
+    EXEC="./lqcd.exe"
+    if [ ! -f "$EXEC" ]; then
+        echo "Error: lqcd.exe not found in run/. Run ./build.sh first."
+        exit 1
+    fi
 fi
 
 echo ""
-echo "Executing the code..."
+echo "Executing the code ($TARGET)..."
 
 # Parse input file for run_record
 beta=$(grep "^Beta:" lqcd.inp | awk -F': ' '{print $2}' | xargs)
@@ -28,7 +42,7 @@ update_method=$(grep "^Update Method:" lqcd.inp | awk -F': ' '{print $2}' | xarg
 
 # Write run record
 echo "==============================================" >> run_record.dat
-echo "Beta: $beta | Lattice: $lattice" >> run_record.dat
+echo "Beta: $beta | Lattice: $lattice | Target: $TARGET" >> run_record.dat
 echo "Update: $update_method" >> run_record.dat
 echo "Host: $(hostname)" >> run_record.dat
 start_time=$(date +%s)
@@ -38,7 +52,7 @@ ulimit -s unlimited
 export OMP_STACKSIZE=4500m
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
-./lqcd.exe
+$EXEC
 EXEC_STATUS=$?
 
 echo ""

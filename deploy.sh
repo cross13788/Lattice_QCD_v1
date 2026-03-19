@@ -20,7 +20,6 @@ if [ $# -lt 1 ]; then
 fi
 
 HOST_NAME="$1"
-CONTROL_PATH="/tmp/ssh-deploy-${HOST_NAME}-$$"
 
 echo ""
 echo "=== Lattice QCD Deploy ==="
@@ -28,31 +27,27 @@ echo "  Target:  ${HOST_NAME}"
 echo "  Path:    ${BASE_PATH}/"
 echo ""
 
-echo "Establishing SSH connection..."
-ssh -o ControlMaster=yes -o ControlPath="${CONTROL_PATH}" -o ControlPersist=10 -fN ${REMOTE_USER}@${HOST_NAME}
 
-if [ $? -ne 0 ]; then
-    echo "Failed to establish SSH connection"
-    exit 1
-fi
+ssh ${REMOTE_USER}@${HOST_NAME} \
+    "mkdir -p ${BASE_PATH}/src/gpu ${BASE_PATH}/run ${BASE_PATH}/inputs ${BASE_PATH}/analysis"
 
-ssh -o ControlPath="${CONTROL_PATH}" ${REMOTE_USER}@${HOST_NAME} \
-    "mkdir -p ${BASE_PATH}/src ${BASE_PATH}/run ${BASE_PATH}/inputs ${BASE_PATH}/analysis"
-
-echo "Syncing src/ (C++ source files and Makefile)..."
+echo "Syncing src/ (C++ source files, CUDA files, and Makefile)..."
 rsync -avz --checksum \
-    -e "ssh -o ControlPath=${CONTROL_PATH}" \
     --include='*.cpp' \
     --include='*.hpp' \
+    --include='*.cu' \
+    --include='*.cuh' \
     --include='Makefile' \
+    --include='gpu/' \
+    --include='gpu/**' \
     --exclude='*.o' \
+    --exclude='.last_target' \
     --exclude='*' \
     src/ \
     ${REMOTE_USER}@${HOST_NAME}:${BASE_PATH}/src/
 
 echo "Syncing inputs/ (input files and run scripts)..."
 rsync -avz --checksum \
-    -e "ssh -o ControlPath=${CONTROL_PATH}" \
     --include='*.inp' \
     --include='*.sh' \
     --exclude='*' \
@@ -61,7 +56,6 @@ rsync -avz --checksum \
 
 echo "Syncing analysis/ (Python analysis scripts)..."
 rsync -avz --checksum \
-    -e "ssh -o ControlPath=${CONTROL_PATH}" \
     --include='*.py' \
     --exclude='__pycache__/' \
     --exclude='*' \
@@ -70,7 +64,6 @@ rsync -avz --checksum \
 
 echo "Syncing shell scripts..."
 rsync -avz --checksum \
-    -e "ssh -o ControlPath=${CONTROL_PATH}" \
     --include='*.sh' \
     --exclude='*' \
     ./ \
@@ -78,12 +71,12 @@ rsync -avz --checksum \
 
 echo "Syncing run/ (input file only, no data)..."
 rsync -avz --checksum \
-    -e "ssh -o ControlPath=${CONTROL_PATH}" \
     --exclude='SU3_*/' \
     --exclude='spectro_*/' \
     --exclude='HMC_*/' \
     --exclude='run_record.dat' \
     --exclude='lqcd.exe' \
+    --exclude='lqcd_gpu.exe' \
     --exclude='remote_run.log' \
     --exclude='*.png' \
     --exclude='*.gif' \
@@ -92,8 +85,6 @@ rsync -avz --checksum \
     run/ \
     ${REMOTE_USER}@${HOST_NAME}:${BASE_PATH}/run/
 
-echo "Closing SSH connection..."
-ssh -O exit -o ControlPath="${CONTROL_PATH}" ${REMOTE_USER}@${HOST_NAME} 2>/dev/null
 
 echo ""
 echo "Deploy complete. Files synced to ${HOST_NAME}:${BASE_PATH}/"
