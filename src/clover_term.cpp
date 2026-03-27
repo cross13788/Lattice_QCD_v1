@@ -316,3 +316,22 @@ void compute_clover_inverse(const CloverField* cloverField,
         invert_clover_block(cloverFieldInv[site].lower);
     }
 }
+
+//-----------------------------------------------
+// Public accessor for sigma matrices and index map
+// (needed by clover_fermion_force.cpp)
+//-----------------------------------------------
+const complex_t* get_sigma_matrix(int mu, int nu)
+{
+    if (!sigmaInitialized) initialize_sigma_matrices();
+    int mA = (mu < nu) ? mu : nu;
+    int mB = (mu < nu) ? nu : mu;
+    return &sigmaMat[sigma_index(mA, mB)][0][0];
+}
+
+int get_sigma_pair_index(int mu, int nu)
+{
+    int mA = (mu < nu) ? mu : nu;
+    int mB = (mu < nu) ? nu : mu;
+    return sigma_index(mA, mB);
+}

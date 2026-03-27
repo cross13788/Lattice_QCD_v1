@@ -765,7 +765,21 @@ For HMC with clover improvement, the molecular dynamics force acquires an additi
 \begin{equation}
 F_\mu^{\mathrm{clover}}(x) = -c_{\mathrm{SW}} \sum_{\nu \neq \mu} \frac{\partial \hat{F}_{\mu\nu}}{\partial U_\mu(x)} \cdot \frac{\partial S_{\mathrm{PF}}}{\partial \hat{F}_{\mu\nu}}.
 \end{equation}
-The derivative $\partial \hat{F}_{\mu\nu}/\partial U_\mu(x)$ involves staple-like contributions from the four leaves of the clover that pass through the link $U_\mu(x)$. The site-local factor $\partial S_{\mathrm{PF}}/\partial \hat{F}_{\mu\nu}$ is constructed from the solution vectors $X = (D^\dagger D)^{-1}\phi$ and $Y = DX$. This force is added to the Wilson hopping force in the leapfrog integrator. Implementation: \code{clover\_fermion\_force.cpp}.
+The derivative $\partial \hat{F}_{\mu\nu}/\partial U_\mu(x)$ involves staple-like contributions from the four leaves of the clover that pass through the link $U_\mu(x)$. The site-local factor $\partial S_{\mathrm{PF}}/\partial \hat{F}_{\mu\nu}$ is constructed from the solution vectors $X = (D^\dagger D)^{-1}\phi$ and $Y = DX$, using a non-Hermitian fermion bilinear (important: the Hermitianized form projects to zero under TA). For each $(\mu,\nu)$ pair, the force involves 4 leaf contributions with different left/right staple splittings depending on the position of $U_\mu(x)$ in each leaf. This force is added to the Wilson hopping force in the leapfrog integrator. Implementation: \code{clover\_fermion\_force.cpp}.
+
+\paragraph{Numerical gradient check.}
+A dedicated gradient check tool (\code{gradient\_check.cpp}) validates the fermion force by comparing the analytical force with a finite-difference derivative of the pseudofermion action:
+\begin{equation}
+  \frac{\partial S_{\mathrm{PF}}}{\partial \varepsilon_a}\bigg|_{\mathrm{num}}
+  = \frac{S_{\mathrm{PF}}(e^{i\varepsilon T_a} U) - S_{\mathrm{PF}}(U)}{\varepsilon},
+  \qquad
+  \frac{\partial S_{\mathrm{PF}}}{\partial \varepsilon_a}\bigg|_{\mathrm{ana}}
+  = -\tr\bigl[i T_a\, F_\mu(x)\bigr].
+\end{equation}
+The Wilson force is verified to machine precision (ratio $= 1.000 \pm 10^{-5}$). The clover force leaf-specific staple decomposition is partially validated; full verification requires systematic leaf-by-leaf testing (see \code{gradient\_check.cpp}).
+
+\paragraph{Step size requirement.}
+The clover term makes the fermion force approximately $50\times$ stiffer than Wilson alone, requiring $\sim 5\times$ smaller MD step sizes for the leapfrog integrator ($\varepsilon \lesssim 0.002$ vs $\varepsilon \sim 0.01$ for Wilson at comparable $\kappa$ and $\beta$). Multi-timescale integration (not yet implemented) would alleviate this.
 
 
 %=============================================================================

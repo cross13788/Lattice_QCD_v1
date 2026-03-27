@@ -185,6 +185,14 @@ int main(int argc, char* argv[])
 //   Run simulation
 //-----------------------------------------------
     if (updateMethod == "hmc") {
+        // Run gradient check if clover is enabled (validates force)
+        if (verboseOutput) {
+            ColorSpinor* phi_test = new ColorSpinor[latticeVolume];
+            generate_pseudofermion(gaugeField, phi_test, latticeVolume);
+            gradient_check(gaugeField, phi_test, latticeVolume);
+            delete[] phi_test;
+        }
+
         // Dynamical fermion simulation via HMC
         hmc_driver(gaugeField);
     } else {

@@ -91,7 +91,8 @@ CPU_ONLY_OBJECTS = su3_module.o              \
                    clover_dirac_operator.o   \
                    clover_even_odd.o         \
                    clover_fermion_force.o    \
-                   even_odd_preconditioning.o
+                   even_odd_preconditioning.o \
+                   gradient_check.o
 
 CPU_MAIN = lqcd_main.o
 

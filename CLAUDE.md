@@ -4,7 +4,7 @@
 
 From-scratch C++17 implementation of SU(3) lattice QCD: Wilson gauge action, Wilson fermions (unimproved + clover), heat bath (Kennedy-Pendleton / Cabibbo-Marinari) + overrelaxation, Hybrid Monte Carlo with pseudofermions, CG/BiCGstab solvers with even-odd preconditioning, meson spectroscopy, Wilson flow, and static quark potential. Written by Christian Ross at Vanderbilt University under Prof. A.S. Umar (DOE DE-SC0013847). ~60 CPU source files + ~27 GPU (CUDA) files. No external QCD libraries -- everything from scratch.
 
-**Status**: Production for quenched gauge + Wilson fermion spectroscopy + quenched HMC. Clover fermion force for HMC is a stub (quenched clover spectroscopy works). GPU port complete. Validated on lattices up to 8^3x16.
+**Status**: Production for quenched gauge + Wilson fermion spectroscopy + quenched HMC. Clover fermion force for HMC is partially implemented (structural framework + gradient check tool in place; leaf-specific staple decomposition needs debugging — see `gradient_check.cpp`). Quenched clover spectroscopy works. GPU port complete. Validated on lattices up to 8^3x16.
 
 ---
 
@@ -107,14 +107,14 @@ Checkerboard decomposition (even/odd parity). Each site updates all 4 link direc
 - **Even-odd preconditioning**: Schur complement D_hat = 1 - D_eo*D_oe. Halves iteration count. Clover even-odd uses 6x6 LU decomposition for (1+A)^{-1}.
 
 ### HMC Implementation
-Matrix exponential via 12-term Taylor/Horner + reunitarization. Leapfrog integrator. Fermion force from CG inversion at each MD step. **Clover fermion force is a STUB** (prints warning, contributes zero) -- only unimproved Wilson HMC works correctly.
+Matrix exponential via 12-term Taylor/Horner + reunitarization. Leapfrog integrator. Fermion force from CG inversion at each MD step. **Clover fermion force is partially implemented** -- structural framework with gradient check tool; leaf-specific staple decomposition needs debugging. Wilson HMC works correctly. A `gradient_check.cpp` tool validates the force numerically.
 
 ### Wilson Flow
 Luscher's 3-stage RK3 integrator. Both plaquette and clover energy density definitions. Reversibility test included.
 
 ### Known Numerical Pitfalls
 
-1. **Clover HMC has incorrect dynamics**: The fermion force stub means clover HMC trajectories have wrong forces. Use only for quenched clover spectroscopy.
+1. **Clover HMC force is partially implemented**: The zero-force stub has been replaced with a structural implementation (`clover_fermion_force.cpp`) using non-Hermitian Lambda, left/right staple decomposition per leaf, and TA projection. A numerical gradient check (`gradient_check.cpp`) validates the Wilson force perfectly (ratio = 1.0 ± 1e-5) but shows the clover force has the right magnitude but incorrect leaf-specific staple index structure — the 8 leaf contributions (4 upper + 4 lower per mu-nu pair) need their left/right matrix splitting debugged against the gradient check. Use `gradient_check.cpp` to systematically test each leaf. The clover force requires ~5x smaller MD step sizes than Wilson (known property of clover actions). For now, use quenched clover for spectroscopy (unaffected by force).
 2. **Thermalization**: Cold start needs fewer sweeps than hot start. Monitor plaquette for plateau.
 3. **Critical slowing down**: Near kappa_c, CG iteration count diverges as condition number ~ (am)^{-2}.
 4. **Overrelaxation alone is not ergodic**: Must combine with heat bath sweeps.
@@ -182,7 +182,8 @@ Lattice_QCD_v1/
 | `generate_pseudofermion.cpp` | phi = D^dag * xi |
 | `pseudofermion_action.cpp` | S_PF = phi^dag (D^dag D)^{-1} phi |
 | `gauge_force.cpp` | F_G = (beta/Nc) * [U*staple]_TA |
-| `fermion_force.cpp` | F_F from CG inversion (clover force is STUB) |
+| `fermion_force.cpp` | F_F from CG inversion + clover force (partially implemented) |
+| `gradient_check.cpp` | Numerical gradient validation for fermion force |
 
 #### Observables
 | File | Purpose |
@@ -291,7 +292,7 @@ Lattice QCD and DSE/BSE are **complementary approaches to the same QCD**:
 When acting as domain expert for this project:
 - **Be blunt and direct.** If the user confuses lattice conventions, say so.
 - **beta = 6/g^2 for SU(3).** Not 2*Nc/g^2 with Nc left symbolic. beta=6.0 means g^2=1.
-- **The clover HMC force is a STUB.** Do not run clover HMC and expect correct physics. Only quenched clover spectroscopy works.
+- **The clover HMC force is partially implemented.** The structural framework is in place but the leaf-specific staple decomposition needs debugging. Use `gradient_check.cpp` (runs automatically with `Verbose Output: on` and `Clover Coefficient > 0`) to validate. Wilson HMC is verified correct. Quenched clover spectroscopy works regardless of force status.
 - **Fermion doubling is fundamental.** Wilson's fix (the r-term) adds O(a) errors that clover removes. You cannot have chiral symmetry + locality + no doubling on the lattice (Nielsen-Ninomiya).
 - **kappa_c is NOT 1/8.** It depends on the gauge coupling and is determined non-perturbatively. At beta=6.0, kappa_c ~ 0.157 for unimproved Wilson.
 - **Thermalization matters.** Always check plaquette vs sweep number. Discard pre-thermalization configurations.

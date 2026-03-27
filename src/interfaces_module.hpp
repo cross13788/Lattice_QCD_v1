@@ -200,6 +200,17 @@ void compute_clover_force(const SU3matrix* gaugeField,
                           const ColorSpinor* Y,
                           SU3matrix* force, int vol);
 
+// Sigma matrix access for clover force (from clover_term.cpp)
+const complex_t* get_sigma_matrix(int mu, int nu);
+int get_sigma_pair_index(int mu, int nu);
+
+// Numerical gradient check for fermion force
+void gradient_check(SU3matrix* gaugeField,
+                    const ColorSpinor* phi, int vol);
+
+// Clover cache invalidation (from clover_dirac_operator.cpp)
+void invalidate_clover_cache();
+
 //===========================================================
 //  HMC — DYNAMICAL FERMIONS (Phase 3)
 //===========================================================
