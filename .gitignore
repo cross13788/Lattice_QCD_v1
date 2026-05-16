@@ -5,9 +5,27 @@ run/test_*.exe
 
 # Output data directories
 run/SU3_*/
+run/HMC_*/
+run/spectro_*/
+run/tmp/
 
-# Test output
+# Run outputs / plots / logs
+run/*.png
+run/*.gif
+run/*.log
+run/*.txt
+run/*.bak
 run/test_output.txt
+
+# Python / build caches
+**/__pycache__/
+src/.last_target
+
+# LaTeX build artifacts
+theory_notes/*.aux
+theory_notes/*.log
+theory_notes/*.out
+theory_notes/*.toc
 
 # Editor backups
 *~
