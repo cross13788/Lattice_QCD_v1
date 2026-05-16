@@ -234,7 +234,7 @@ void gpu_clover_dirac(const ColorSpinorDev* psi, ColorSpinorDev* result,
                       gpu_real_t kappa, gpu_real_t wilsonR, int vol)
 {
     // Ensure clover field is computed
-    ensure_clover_field(1.0, vol);  // c_sw baked into sigmaMat during upload
+    ensure_clover_field(gpuState.cloverCsw, vol);
 
     // Apply Wilson operator
     gpu_wilson_dirac(psi, result, kappa, wilsonR, vol);
@@ -251,7 +251,7 @@ void gpu_clover_dirac_dagger(const ColorSpinorDev* psi, ColorSpinorDev* result,
                              gpu_real_t kappa, gpu_real_t wilsonR, int vol)
 {
     // D_clover^dag = D_wilson^dag + A (A is Hermitian)
-    ensure_clover_field(1.0, vol);
+    ensure_clover_field(gpuState.cloverCsw, vol);
 
     gpu_wilson_dirac_dagger(psi, result, tmp1, tmp2, kappa, wilsonR, vol);
 

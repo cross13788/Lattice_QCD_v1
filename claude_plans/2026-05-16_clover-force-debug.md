@@ -11,6 +11,18 @@ separate reversed loops (that double-counted), explicit `i`,
 `C=c_sw/32`. CLAUDE.md pitfall #1 rewritten. The notes below are the
 audit trail.
 
+**GPU port also DONE 2026-05-16.** GPU clover was entirely unwired:
+`gpu_alloc_clover` never called, `d_sigmaMat` never uploaded. Added
+`gpu_upload_sigma` + `get_sigma_base`, wired alloc/upload in
+`lqcd_main_gpu.cpp` (when `useClover`), `ensure_clover_field` now uses
+`gpuState.cloverCsw`. Ported the force to `src/gpu/clover_force_gpu.cu`
+(one-thread-per-site scatter + `atomicAdd` into `d_cloverForceAcc`;
+finalize `TA(i·acc)·c_sw/32`), hooked into `gpu_compute_fermion_force`,
+added to `src/Makefile`. Validated: RNG-free clover Dirac CPU vs GPU CG
+counts match (4807 vs 4808 total / per-solve exact); GPU vs CPU clover
+HMC track within RNG noise (same thermalization, `dH≈−0.003…−0.006`,
+stable). Test inputs: `rngfree_clover_cg.inp`, `hmc_clover_cmp.inp`.
+
 ## What this is
 
 CLAUDE.md pitfall #1: the clover HMC fermion force is implemented but

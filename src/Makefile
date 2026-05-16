@@ -119,6 +119,7 @@ GPU_CU_OBJECTS = gpu/gpu_state.o              \
                  gpu/hmc_gpu.o                \
                  gpu/wilson_flow_gpu.o        \
                  gpu/clover_gpu.o             \
+                 gpu/clover_force_gpu.o       \
                  gpu/even_odd_gpu.o           \
                  gpu/measurements_gpu.o
 

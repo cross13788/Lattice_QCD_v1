@@ -355,6 +355,14 @@ const complex_t* get_sigma_matrix(int mu, int nu)
     return &sigmaMat[sigma_index(mA, mB)][0][0];
 }
 
+// Base pointer to the full contiguous sigmaMat[6][4][4] block
+// (pair-major: idx*16 + s1*4 + s2). Used to upload sigma to the GPU.
+const complex_t* get_sigma_base()
+{
+    if (!sigmaInitialized) initialize_sigma_matrices();
+    return &sigmaMat[0][0][0];
+}
+
 int get_sigma_pair_index(int mu, int nu)
 {
     int mA = (mu < nu) ? mu : nu;

@@ -35,6 +35,8 @@ extern "C++" {
     void gpu_alloc_hmc(int vol);
     void gpu_alloc_flow(int vol);
     void gpu_alloc_rand(int nStates, int seed);
+    void gpu_alloc_clover(int vol);
+    void gpu_upload_sigma(const void* hostSigma, double csw);
 
     // Gauge operations
     double gpu_compute_plaquette(int vol);
@@ -190,6 +192,14 @@ int main(int argc, char* argv[])
     // cuRAND states (one per site)
     if (updateMethod == "heatbath" || updateMethod == "hmc")
         gpu_alloc_rand(latticeVolume, randomSeed);
+
+    // Clover workspace + sigma upload (GPU clover was previously
+    // unwired: gpu_alloc_clover was never called and d_sigmaMat
+    // never populated).
+    if (useClover) {
+        gpu_alloc_clover(latticeVolume);
+        gpu_upload_sigma(get_sigma_base(), c_sw);
+    }
 
     printf("\n");
 

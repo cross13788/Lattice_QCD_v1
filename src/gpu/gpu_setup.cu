@@ -61,6 +61,7 @@ void gpu_init(int vol)
     gpuState.flowAllocated = false;
     gpuState.cloverAllocated = false;
     gpuState.randAllocated = false;
+    gpuState.cloverCsw = 0.0;
 
     // Create CUDA streams for async overlap
     gpu_create_streams();
@@ -272,7 +273,28 @@ void gpu_alloc_clover(int vol)
     size_t sigSize = 6 * 4 * 4 * sizeof(gpu_complex_t);
     CUDA_CHECK(cudaMalloc(&gpuState.d_sigmaMat, sigSize));
 
+    // Clover-force scatter accumulator: vol * 4 links
+    CUDA_CHECK(cudaMalloc(&gpuState.d_cloverForceAcc,
+                          (size_t)vol * 4 * sizeof(SU3matrixDev)));
+
     gpuState.cloverAllocated = true;
+}
+
+//-----------------------------------------------
+// Upload host sigma matrices to the device.
+//
+// Host sigmaMat is complex_t[6][4][4] (std::complex<double>,
+// guaranteed {re,im} contiguous) — bit-identical layout to
+// gpu_complex_t[6][4][4] (pair-major: idx*16 + s1*4 + s2),
+// matching kernel_compute_clover_field's indexing. Also records
+// c_sw for the clover-field prefactor.
+//-----------------------------------------------
+void gpu_upload_sigma(const void* hostSigma, double csw)
+{
+    size_t sigSize = 6 * 4 * 4 * sizeof(gpu_complex_t);
+    CUDA_CHECK(cudaMemcpy(gpuState.d_sigmaMat, hostSigma, sigSize,
+                          cudaMemcpyHostToDevice));
+    gpuState.cloverCsw = csw;
 }
 
 //-----------------------------------------------

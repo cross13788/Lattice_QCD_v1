@@ -24,6 +24,7 @@ gpu_real_t gpu_field_norm2(const ColorSpinorDev* x, int vol);
 gpu_complex_t gpu_field_dot(const ColorSpinorDev* x, const ColorSpinorDev* y, int vol);
 void gpu_cg_update_p(const ColorSpinorDev* r, ColorSpinorDev* p,
                      gpu_real_t beta, int vol);
+void gpu_compute_clover_force(gpu_real_t c_sw, int vol);
 
 //-----------------------------------------------
 // Fermion force outer-product kernel
@@ -131,7 +132,7 @@ void gpu_compute_fermion_force(gpu_real_t kappa, gpu_real_t wilsonR,
     // Y = D * X
     gpu_apply_dirac(X, Y, kappa, wilsonR, useClover, vol);
 
-    // Compute force kernel
+    // Compute force kernel (Wilson part)
     kernel_fermion_force<<<gpu_grid_size(vol), BLOCK_SIZE>>>(
         gpuState.d_gaugeField, X, Y,
         gpuState.d_forceFermion,
@@ -139,4 +140,8 @@ void gpu_compute_fermion_force(gpu_real_t kappa, gpu_real_t wilsonR,
         gpuState.d_gammaIdx, gpuState.d_gammaVal,
         kappa, wilsonR, vol);
     CUDA_CHECK_LAST();
+
+    // Clover part (validated port of CPU compute_clover_force)
+    if (useClover)
+        gpu_compute_clover_force(gpuState.cloverCsw, vol);
 }

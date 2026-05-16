@@ -203,6 +203,8 @@ void compute_clover_force(const SU3matrix* gaugeField,
 // Sigma matrix access for clover force (from clover_term.cpp)
 const complex_t* get_sigma_matrix(int mu, int nu);
 int get_sigma_pair_index(int mu, int nu);
+// Base pointer to the contiguous sigmaMat[6][4][4] (for GPU upload).
+const complex_t* get_sigma_base();
 
 // Numerical gradient check for fermion force
 void gradient_check(SU3matrix* gaugeField,

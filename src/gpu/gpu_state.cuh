@@ -35,6 +35,7 @@ struct GPUState {
     // Force arrays (HMC): vol * 4 SU3matrixDev
     SU3matrixDev* d_forceGauge;
     SU3matrixDev* d_forceFermion;
+    SU3matrixDev* d_cloverForceAcc;  // vol*4 scatter accumulator (clover force)
 
     // Solver vectors (allocated once, reused)
     ColorSpinorDev* d_psi;       // input spinor
@@ -94,6 +95,9 @@ struct GPUState {
     bool flowAllocated;
     bool cloverAllocated;
     bool randAllocated;
+
+    // Clover coefficient (used by the cached clover-field kernel)
+    double cloverCsw;
 };
 
 // Global GPU state instance
@@ -128,6 +132,10 @@ void gpu_alloc_rand(int nStates, int seed);
 
 // Allocate clover workspace
 void gpu_alloc_clover(int vol);
+
+// Upload host sigma matrices (sigmaMat[6][4][4], pair-major) to
+// d_sigmaMat, and record c_sw for the clover field prefactor.
+void gpu_upload_sigma(const void* hostSigma, double csw);
 
 // Reduction helper: sum d_reductionBuf[0..nBlocks-1] on host
 gpu_real_t gpu_reduce_partial(int nBlocks);
