@@ -1,76 +1,51 @@
 # Next Session Prompt
 
-**Resume work in**: `/home/ross/Lattice_QCD_v1`
-**Plan**: `claude_plans/2026-05-16_gpu-hmc-debug.md` — read first.
+**Status: GPU HMC bug RESOLVED 2026-05-16.** No open debugging task.
+Plan history: `claude_plans/2026-05-16_gpu-hmc-debug.md`.
 
-## TL;DR
+## What was fixed
 
-The "GPU gauge-update broken" pitfall #6 was a **misdiagnosis with an
-inverted baseline** — FIXED and committed (3c438e0). The real bug was a
-parallel-sweep coloring defect (site parity + all-mu-per-thread) that
-destroyed overrelaxation's microcanonical property in **both CPU and
-GPU**. GPU quenched heat bath is now validated correct (GPU vs CPU
-`<P>≈0.54` at beta=5.6, ~1.7σ). **GPU HMC is still genuinely broken** —
-that is the next target.
+`src/gpu/random_fields_gpu.cu` `kernel_generate_momenta` was launched
+one-thread-per-link (`idx` over `nLinks`) but indexed the cuRAND state
+per-site (`randStates[idx/4]`). cuRAND states are allocated per site
+(`gpu_alloc_rand(latticeVolume)`), so the 4 link directions at each site
+were generated from the SAME state → identical conjugate momenta per
+site → rank-deficient momentum heat-bath → non-canonical HMC →
+`<P>≈0.78` instead of `≈0.50`. Fix: one thread per site, loop μ=0..3
+from the single advancing per-site stream (mirrors the correct
+`kernel_generate_gaussian_spinor` / heat-bath kernels).
 
-## Current State
+## Validation (all pass, comphys)
 
-- **Branch**: gpu-validation-comphys @ 3c438e0. Tree clean.
-- cluster-ops auto-loads: comphys, `/home/ross/Lattice_QCD_v1`, GPU cycle.
-- comphys SSH master key expires ~10 min after last use — ping to keep
-  warm (memory: `ssh-master-key-keepalive`).
+- GPU dynamical `inputs/hmc_4x4x4x4.inp`: `<P>≈0.53`, two-sign ΔH,
+  **97% accept** (was 0.78 / one-sign / 100%).
+- GPU pure-gauge HMC from a thermalized config
+  (`inputs/hmc_fromthermal_b60.inp`, κ=1e-6): **stays** `<P>≈0.58`
+  (was drifting to 0.78) — detailed balance restored.
+- GPU quenched regression `inputs/quenched_4x4x4x4_b56.inp`: `<P>≈0.54`
+  unchanged (heat-bath path untouched by the fix).
 
-## Fixed & Validated This Session (commit 3c438e0)
+## State
 
-- Root cause: `(x,mu)` and `(x+mu-nu,nu)` share the negative-staple
-  plaquette with the same site parity; updating all 4 mu per thread
-  reflects them simultaneously → kills microcanonical overrelaxation
-  (CPU cooled ovr=0→0.542, 2→0.447, 8→0.360).
-- Fix: **mu-outer** loop in CPU `heat_bath_sweep`/`overrelaxation_sweep`/
-  `metropolis_sweep` and GPU `heat_bath_gpu`/`overrelaxation_gpu`.
-- Result: overrelaxation now exactly count-invariant. CPU ovr=0/4/8 all
-  `<P>=0.53587±0.00179`; GPU `0.53955±0.00132`. GPU quenched heat bath
-  validated correct. CLAUDE.md pitfall #6 rewritten.
+- Branch `gpu-validation-comphys`. Working tree has the one-line-class
+  source fix in `src/gpu/random_fields_gpu.cu` plus doc updates
+  (CLAUDE.md pitfall #6 + status line, this file, the plan). **Not yet
+  committed** — commit when ready.
+- comphys: `run/lqcd_cpu_fixed.exe` and `run/lqcd_gpu.exe` are the
+  fixed builds (09:48). `run/fixedcfg.bin` intact. Remote source ==
+  local (verified per-file); only stale `.o` files referenced old
+  diagnostics and were recompiled.
+- Diagnostic-only inputs created on comphys (not in repo, harmless):
+  `hmc_quenchedlimit_4x4x4x4.inp`, `hmc_fixedcfg_force.inp`,
+  `hmc_dtscale_4x4x4x4.inp`, `hmc_fromthermal_b60.inp`,
+  `rngfree_cg_4x4x4x8.inp`. `hmc_fromthermal_b60.inp` is worth keeping
+  as a GPU-HMC sampler regression gate (consider adding to repo).
 
-## The Bug to Fix (GPU HMC)
+## If continuing GPU work
 
-`inputs/hmc_4x4x4x4.inp` (dynamical, beta=5.6, kappa=0.12):
-- CPU-fixed (correct): `<P>≈0.50`, ΔH two-sign, 99% acc.
-- GPU (broken): `<P>≈0.78`, ΔH **systematically negative**, 100% accept.
-
-HMC components untouched by the coloring fix: GPU gauge force (read-only,
-verified line-identical to CPU), leapfrog, conjugate momentum,
-pseudofermion action, fermion force. Signature (one-sign ΔH + 100%
-accept) = force/sign or missing-term error: GPU MD self-consistent but
-conserves the wrong energy / inconsistent with the Metropolis dH.
-
-## Immediate Next Steps
-
-1. comphys: `build.sh cpu`; `cp run/lqcd.exe run/lqcd_cpu_fixed.exe`;
-   `build.sh gpu` (target switch make-cleans the other exe).
-2. RNG-free per-link **total force** (gauge+fermion) CPU vs GPU on
-   `run/fixedcfg.bin`. Gauge force matches → isolates GPU fermion force +
-   leapfrog/momentum sign.
-3. Discriminator: pure-gauge GPU HMC. Runs away too ⇒ bug in GPU
-   leapfrog/gauge-force-sign/momentum. Fine ⇒ bug in GPU fermion-force /
-   pseudofermion path.
-4. Suspects: `gpu/leapfrog_gpu.cu` (half-step sign), `gpu/
-   fermion_force_gpu.cu`, conjugate-momentum sign vs GPU dH kinetic
-   term, `gpu/pseudofermion_action_gpu.cu`.
-5. Gate: GPU `hmc_4x4x4x4.inp` ⟨exp−ΔH⟩≈1 (two-sign ΔH) AND equilibrium
-   `<P>`≈0.50 within ~2σ of CPU-fixed.
-
-## Before You Start
-
-- [ ] Read `claude_plans/2026-05-16_gpu-hmc-debug.md`
-- [ ] Read CLAUDE.md pitfall #6 (rewritten), #1 (clover, out of scope), #7
-- [ ] Confirm cluster-ops auto-loaded; `git log -1` = 3c438e0
-- [ ] Re-confirm no regression: GPU `quenched_4x4x4x4_b56.inp` `<P>`≈0.54
-
-## Watch Out For
-
-- `build.sh {cpu,gpu}` make-cleans the OTHER target's exe — `cp` first.
-- Never gate HMC on RNG-path trajectory equality (CPU/GPU RNG differ);
-  use ⟨exp−ΔH⟩, equilibrium `<P>`, and RNG-free per-link force.
-- Clover HMC force separately broken (pitfall #1) — use Wilson here.
-- comphys SSH key 10-min expiry — keep the connection warm.
+The GPU port is now fully validated end-to-end (fermion spectroscopy,
+quenched heat bath, Wilson HMC). Remaining known-broken: **clover HMC
+force** (CLAUDE.md pitfall #1, separate from this) — that is the natural
+next GPU/physics target if desired. Audit other GPU RNG kernels with the
+[[gpu-curand-thread-granularity]] lens (all others were already correct,
+but it's the cheap recurring check).

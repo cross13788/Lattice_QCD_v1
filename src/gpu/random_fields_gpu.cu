@@ -13,50 +13,58 @@
 // Generate Gaussian conjugate momenta
 // (traceless anti-Hermitian)
 //-----------------------------------------------
+// One thread per SITE. The cuRAND state array is allocated per site
+// (gpu_alloc_rand(latticeVolume, ...)), so the 4 link directions at a
+// site must be drawn sequentially from that site's single advancing
+// stream by ONE thread. The earlier one-thread-per-link form indexed
+// randStates[idx/4], so the 4 links of a site read the SAME state and
+// produced IDENTICAL momenta (rank-deficient momentum heat-bath ->
+// non-canonical HMC sampling -> wrong equilibrium plaquette), plus a
+// write race on randStates[site]. This mirrors kernel_generate_gaussian_spinor
+// and the heat-bath kernels, which are correctly one-thread-per-site.
 __global__
 void kernel_generate_momenta(SU3matrixDev* momentum,
                              curandState* randStates,
                              int nLinks, int vol)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= nLinks) return;
+    int site = blockIdx.x * blockDim.x + threadIdx.x;
+    if (site >= vol) return;
 
-    // Use site-based RNG (idx / 4 gives site)
-    int site = idx / 4;
     curandState localState = randStates[site];
 
-    SU3matrixDev& H = momentum[idx];
+    for (int mu = 0; mu < 4; mu++) {
+        SU3matrixDev& H = momentum[site * 4 + mu];
 
-    // Off-diagonal elements
-    for (int i = 0; i < GPU_NC; i++) {
-        for (int j = i + 1; j < GPU_NC; j++) {
-            gpu_real_t a = curand_normal_double(&localState) / sqrt(2.0);
-            gpu_real_t b = curand_normal_double(&localState) / sqrt(2.0);
-            H.m[i][j] = gpu_complex_t(a, b);
-            H.m[j][i] = gpu_complex_t(-a, b);
+        // Off-diagonal elements
+        for (int i = 0; i < GPU_NC; i++) {
+            for (int j = i + 1; j < GPU_NC; j++) {
+                gpu_real_t a = curand_normal_double(&localState) / sqrt(2.0);
+                gpu_real_t b = curand_normal_double(&localState) / sqrt(2.0);
+                H.m[i][j] = gpu_complex_t(a, b);
+                H.m[j][i] = gpu_complex_t(-a, b);
+            }
         }
-    }
 
-    // Diagonal: traceless anti-Hermitian
-    gpu_real_t d[GPU_NC];
-    gpu_real_t dsum = 0.0;
-    for (int i = 0; i < GPU_NC - 1; i++) {
-        d[i] = curand_normal_double(&localState) / sqrt(2.0);
-        dsum += d[i];
-    }
-    d[GPU_NC - 1] = -dsum;
+        // Diagonal: traceless anti-Hermitian
+        gpu_real_t d[GPU_NC];
+        gpu_real_t dsum = 0.0;
+        for (int i = 0; i < GPU_NC - 1; i++) {
+            d[i] = curand_normal_double(&localState) / sqrt(2.0);
+            dsum += d[i];
+        }
+        d[GPU_NC - 1] = -dsum;
 
-    for (int i = 0; i < GPU_NC; i++)
-        H.m[i][i] = gpu_complex_t(0.0, d[i]);
+        for (int i = 0; i < GPU_NC; i++)
+            H.m[i][i] = gpu_complex_t(0.0, d[i]);
+    }
 
     randStates[site] = localState;
 }
 
 void gpu_generate_momenta(int vol)
 {
-    int nLinks = vol * 4;
-    kernel_generate_momenta<<<gpu_grid_size(nLinks), BLOCK_SIZE>>>(
-        gpuState.d_momentum, gpuState.d_randStates, nLinks, vol);
+    kernel_generate_momenta<<<gpu_grid_size(vol), BLOCK_SIZE>>>(
+        gpuState.d_momentum, gpuState.d_randStates, vol * 4, vol);
     CUDA_CHECK_LAST();
 }
 
