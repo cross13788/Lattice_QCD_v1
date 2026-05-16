@@ -1,10 +1,12 @@
 //-----------------------------------------------
 // Heat bath sweep over all lattice links
 //
-// Uses checkerboard (even/odd) decomposition:
-// update all even sites first (in parallel), then
-// all odd sites. This ensures no two simultaneously
-// updated links share a staple.
+// mu-outer, then even/odd site parity. Site parity
+// alone is NOT a valid coloring when a thread updates
+// all 4 directions: (x,mu) and (x+mu-nu,nu) share the
+// negative-staple plaquette and have the same site
+// parity. Fixing mu per pass makes the concurrently-
+// updated link set share no plaquette.
 //-----------------------------------------------
 #include "constants_module.hpp"
 #include "input_module.hpp"
@@ -15,14 +17,14 @@
 void heat_bath_sweep(SU3matrix* gaugeField)
 {
 //-----------------------------------------------
-//   Loop over even sites, then odd sites
+//   mu-outer, then even/odd sites (race-free)
 //-----------------------------------------------
-    for (int parity = 0; parity < 2; parity++) {
-        #pragma omp parallel for
-        for (int site = 0; site < latticeVolume; site++) {
-            if (site_parity(site) != parity) continue;
+    for (int mu = 0; mu < 4; mu++) {
+        for (int parity = 0; parity < 2; parity++) {
+            #pragma omp parallel for
+            for (int site = 0; site < latticeVolume; site++) {
+                if (site_parity(site) != parity) continue;
 
-            for (int mu = 0; mu < 4; mu++) {
                 SU3matrix staple;
                 compute_staple(gaugeField, site, mu, staple);
                 su3_heat_bath_update(gaugeField[site * 4 + mu], staple, beta);

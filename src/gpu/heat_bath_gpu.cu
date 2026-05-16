@@ -133,7 +133,25 @@ void dev_su3_heat_bath_subgroup(SU3matrixDev& U, const SU3matrixDev& staple,
 }
 
 //-----------------------------------------------
-// Heat bath kernel: one thread per site
+// Heat bath kernel: one thread per site, ONE link
+// direction (targetMu) per launch.
+//
+// Site even/odd parity alone is NOT a sufficient
+// coloring when a thread updates all 4 directions:
+// link (x,mu) and link (x+mu-nu,nu) share the
+// negative-staple plaquette, and x and x+mu-nu have
+// the SAME site parity (mu and nu each flip parity
+// once). Updating them simultaneously (Jacobi, as
+// on the GPU's thousands of concurrent threads)
+// violates detailed balance -> wrong equilibrium.
+//
+// Fixing mu per launch removes this: the only
+// direction-mu links in the staple of (x,mu) sit
+// at OPPOSITE-parity sites (x+/-nu), and direction-
+// nu links (nu != mu) are not updated this launch.
+// So no two concurrently-updated links share a
+// plaquette. (Standard correct GPU heat-bath
+// coloring; see Gattringer & Lang Ch. 4.)
 //-----------------------------------------------
 __global__
 void kernel_heat_bath(SU3matrixDev* gaugeField,
@@ -143,6 +161,7 @@ void kernel_heat_bath(SU3matrixDev* gaugeField,
                       curandState* randStates,
                       gpu_real_t beta,
                       int targetParity,
+                      int targetMu,
                       int vol)
 {
     int site = blockIdx.x * blockDim.x + threadIdx.x;
@@ -151,31 +170,32 @@ void kernel_heat_bath(SU3matrixDev* gaugeField,
 
     curandState localState = randStates[site];
 
-    for (int mu = 0; mu < 4; mu++) {
-        SU3matrixDev staple;
-        dev_compute_staple(gaugeField, neighborPlus, neighborMinus, site, mu, staple);
+    int mu = targetMu;
+    SU3matrixDev staple;
+    dev_compute_staple(gaugeField, neighborPlus, neighborMinus, site, mu, staple);
 
-        // Cabibbo-Marinari: cycle through 3 SU(2) subgroups
-        for (int sub = 0; sub < 3; sub++) {
-            dev_su3_heat_bath_subgroup(gaugeField[site * 4 + mu], staple,
-                                       beta, sub, &localState);
-        }
-        dev_su3_reunitarize(gaugeField[site * 4 + mu]);
+    // Cabibbo-Marinari: cycle through 3 SU(2) subgroups
+    for (int sub = 0; sub < 3; sub++) {
+        dev_su3_heat_bath_subgroup(gaugeField[site * 4 + mu], staple,
+                                   beta, sub, &localState);
     }
+    dev_su3_reunitarize(gaugeField[site * 4 + mu]);
 
     randStates[site] = localState;
 }
 
 void gpu_heat_bath_sweep(gpu_real_t beta, int vol)
 {
-    // Even sites, then odd sites
-    for (int parity = 0; parity < 2; parity++) {
-        kernel_heat_bath<<<gpu_grid_size(vol), BLOCK_SIZE>>>(
-            gpuState.d_gaugeField,
-            gpuState.d_neighborPlus, gpuState.d_neighborMinus,
-            gpuState.d_siteParity, gpuState.d_randStates,
-            beta, parity, vol);
-        CUDA_CHECK_LAST();
-        CUDA_CHECK(cudaDeviceSynchronize());
+    // mu-outer, then even sites / odd sites: race-free coloring.
+    for (int mu = 0; mu < 4; mu++) {
+        for (int parity = 0; parity < 2; parity++) {
+            kernel_heat_bath<<<gpu_grid_size(vol), BLOCK_SIZE>>>(
+                gpuState.d_gaugeField,
+                gpuState.d_neighborPlus, gpuState.d_neighborMinus,
+                gpuState.d_siteParity, gpuState.d_randStates,
+                beta, parity, mu, vol);
+            CUDA_CHECK_LAST();
+            CUDA_CHECK(cudaDeviceSynchronize());
+        }
     }
 }

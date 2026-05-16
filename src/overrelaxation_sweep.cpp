@@ -13,14 +13,30 @@
 void overrelaxation_sweep(SU3matrix* gaugeField)
 {
 //-----------------------------------------------
-//   Loop over even sites, then odd sites
+//   mu-outer, then even/odd sites.
+//
+//   Site even/odd parity alone is NOT a valid
+//   coloring when a thread updates all 4 link
+//   directions: link (x,mu) and link (x+mu-nu,nu)
+//   share the negative-staple plaquette, and x and
+//   x+mu-nu have the SAME site parity (mu and nu
+//   each flip parity once). Reflecting both
+//   "simultaneously" across OpenMP threads destroys
+//   the microcanonical (action-preserving) property
+//   of overrelaxation -> systematic cooling drift
+//   (plaquette collapses as nOverrelax increases).
+//
+//   Fixing mu per (parity) pass removes this: the
+//   only direction-mu links in the staple of (x,mu)
+//   sit at OPPOSITE-parity sites, and direction-nu
+//   links (nu != mu) are not touched this pass.
 //-----------------------------------------------
-    for (int parity = 0; parity < 2; parity++) {
-        #pragma omp parallel for
-        for (int site = 0; site < latticeVolume; site++) {
-            if (site_parity(site) != parity) continue;
+    for (int mu = 0; mu < 4; mu++) {
+        for (int parity = 0; parity < 2; parity++) {
+            #pragma omp parallel for
+            for (int site = 0; site < latticeVolume; site++) {
+                if (site_parity(site) != parity) continue;
 
-            for (int mu = 0; mu < 4; mu++) {
                 SU3matrix staple;
                 compute_staple(gaugeField, site, mu, staple);
                 su3_overrelaxation_update(gaugeField[site * 4 + mu], staple);

@@ -24,16 +24,21 @@ void metropolis_sweep(SU3matrix* gaugeField, real_t& acceptanceRate)
     int nTotal = 0;
 
 //-----------------------------------------------
-//   Loop over even sites, then odd sites
+//   mu-outer, then even/odd sites.
+//   Site parity alone is not a valid coloring when
+//   a thread updates all 4 directions: (x,mu) and
+//   (x+mu-nu,nu) share the negative-staple plaquette
+//   with the same site parity. Fixing mu per pass
+//   makes the concurrently-updated link set share
+//   no plaquette.
 //-----------------------------------------------
-    for (int parity = 0; parity < 2; parity++) {
-        // Cannot trivially parallelize Metropolis with shared acceptance counter
-        // But we can parallelize within each parity since staples don't overlap
+    for (int mu = 0; mu < 4; mu++) {
+        for (int parity = 0; parity < 2; parity++) {
         #pragma omp parallel for reduction(+:nAccepted,nTotal)
         for (int site = 0; site < latticeVolume; site++) {
             if (site_parity(site) != parity) continue;
 
-            for (int mu = 0; mu < 4; mu++) {
+            {
                 nTotal++;
 
                 // Compute staple
@@ -67,6 +72,7 @@ void metropolis_sweep(SU3matrix* gaugeField, real_t& acceptanceRate)
                     nAccepted++;
                 }
             }
+        }
         }
     }
 

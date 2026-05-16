@@ -63,33 +63,42 @@ void dev_su3_overrelaxation_update(SU3matrixDev& U, const SU3matrixDev& staple)
 //-----------------------------------------------
 // Overrelaxation kernel
 //-----------------------------------------------
+// One link direction (targetMu) per launch. Site
+// even/odd parity alone is not a sufficient coloring
+// when a thread touches all 4 directions: (x,mu) and
+// (x+mu-nu,nu) share the negative-staple plaquette and
+// have the same site parity. Fixing mu per launch makes
+// the concurrently-updated link set share no plaquette.
+// (Same reasoning as kernel_heat_bath.)
 __global__
 void kernel_overrelaxation(SU3matrixDev* gaugeField,
                            const int* neighborPlus,
                            const int* neighborMinus,
                            const int* siteParity,
                            int targetParity,
+                           int targetMu,
                            int vol)
 {
     int site = blockIdx.x * blockDim.x + threadIdx.x;
     if (site >= vol) return;
     if (siteParity[site] != targetParity) return;
 
-    for (int mu = 0; mu < 4; mu++) {
-        SU3matrixDev staple;
-        dev_compute_staple(gaugeField, neighborPlus, neighborMinus, site, mu, staple);
-        dev_su3_overrelaxation_update(gaugeField[site * 4 + mu], staple);
-    }
+    int mu = targetMu;
+    SU3matrixDev staple;
+    dev_compute_staple(gaugeField, neighborPlus, neighborMinus, site, mu, staple);
+    dev_su3_overrelaxation_update(gaugeField[site * 4 + mu], staple);
 }
 
 void gpu_overrelaxation_sweep(int vol)
 {
-    for (int parity = 0; parity < 2; parity++) {
-        kernel_overrelaxation<<<gpu_grid_size(vol), BLOCK_SIZE>>>(
-            gpuState.d_gaugeField,
-            gpuState.d_neighborPlus, gpuState.d_neighborMinus,
-            gpuState.d_siteParity, parity, vol);
-        CUDA_CHECK_LAST();
-        CUDA_CHECK(cudaDeviceSynchronize());
+    for (int mu = 0; mu < 4; mu++) {
+        for (int parity = 0; parity < 2; parity++) {
+            kernel_overrelaxation<<<gpu_grid_size(vol), BLOCK_SIZE>>>(
+                gpuState.d_gaugeField,
+                gpuState.d_neighborPlus, gpuState.d_neighborMinus,
+                gpuState.d_siteParity, parity, mu, vol);
+            CUDA_CHECK_LAST();
+            CUDA_CHECK(cudaDeviceSynchronize());
+        }
     }
 }
