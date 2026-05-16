@@ -1,0 +1,56 @@
+# Generate one thermalized gauge config for the RNG-free fixed-config gate.
+# Hot start + seed 42 + 80 therm sweeps -> 1 config, written to binary
+# (config_0001.bin). The .bin is then loaded identically by CPU and GPU.
+
+-------------------------------
+[Lattice]
+-------------------------------
+nX: 4
+nY: 4
+nZ: 4
+nT: 8
+
+-------------------------------
+[Gauge Action]
+-------------------------------
+Beta: 6.0
+Update Method: heatbath
+Metropolis Epsilon: 0.2
+Start Type: hot
+
+-------------------------------
+[Monte Carlo]
+-------------------------------
+Thermalization Sweeps: 80
+Number of Configurations: 1
+Sweeps Between Measurements: 0
+Overrelaxation Sweeps: 3
+Configuration Save Frequency: 1
+Save Binary Configs: on
+Random Seed: 42
+
+-------------------------------
+[Measurements]
+-------------------------------
+Measure Wilson Loops: off
+Wilson Loop R Max: 2
+Wilson Loop T Max: 2
+Measure Polyakov: off
+Measure Correlators: off
+Verbose Output: on
+
+-------------------------------
+[Wilson Fermions]
+-------------------------------
+Kappa: 0.15
+Wilson r: 1.0
+CG Max Iterations: 2000
+CG Tolerance: 1.0e-12
+Solver Type: bicgstab
+
+-------------------------------
+[HMC]
+-------------------------------
+MD Steps: 20
+MD Step Size: 0.01
+HMC Trajectories: 100

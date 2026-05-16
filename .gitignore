@@ -30,3 +30,4 @@ theory_notes/*.toc
 # Editor backups
 *~
 *.swp
+.nvhpc/

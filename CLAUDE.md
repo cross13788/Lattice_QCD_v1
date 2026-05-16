@@ -4,7 +4,7 @@
 
 From-scratch C++17 implementation of SU(3) lattice QCD: Wilson gauge action, Wilson fermions (unimproved + clover), heat bath (Kennedy-Pendleton / Cabibbo-Marinari) + overrelaxation, Hybrid Monte Carlo with pseudofermions, CG/BiCGstab solvers with even-odd preconditioning, meson spectroscopy, Wilson flow, and static quark potential. Written by Christian Ross at Vanderbilt University under Prof. A.S. Umar (DOE DE-SC0013847). ~60 CPU source files + ~27 GPU (CUDA) files. No external QCD libraries -- everything from scratch.
 
-**Status**: Production for quenched gauge + Wilson fermion spectroscopy + quenched HMC. Clover fermion force for HMC is partially implemented (structural framework + gradient check tool in place; leaf-specific staple decomposition needs debugging — see `gradient_check.cpp`). Quenched clover spectroscopy works. GPU port complete. Validated on lattices up to 8^3x16.
+**Status**: Production for quenched gauge + Wilson fermion spectroscopy + quenched HMC. Clover fermion force for HMC is partially implemented (structural framework + gradient check tool in place; leaf-specific staple decomposition needs debugging — see `gradient_check.cpp`). Quenched clover spectroscopy works. **GPU port: fermion stack validated, gauge-update/HMC broken** (built+validated on comphys 2026-05-16). The GPU Wilson-Dirac/solver/propagator/correlator path agrees with the CPU to ~1e-10 on a fixed config (RNG-free gate, well inside 1e-8). The GPU gauge-update dynamics (heatbath + HMC) sample the wrong distribution and are NOT usable; use GPU only for fixed-config fermion spectroscopy on CPU-generated configs (`Start Type: file:<path>`). CPU validated on lattices up to 8^3x16.
 
 ---
 
@@ -119,6 +119,8 @@ Luscher's 3-stage RK3 integrator. Both plaquette and clover energy density defin
 3. **Critical slowing down**: Near kappa_c, CG iteration count diverges as condition number ~ (am)^{-2}.
 4. **Overrelaxation alone is not ergodic**: Must combine with heat bath sweeps.
 5. **Reunitarization**: Accumulation of roundoff in SU(3) multiplication requires periodic reunitarization.
+6. **GPU gauge-update dynamics are broken (validated 2026-05-16, comphys)**: GPU quenched heatbath equilibrates to the wrong plaquette (`<P>=0.540` vs CPU `0.427` at beta=5.6, ≫60σ); GPU HMC plaquette runs away with one-sign ΔH. At 5× smaller MD step ΔH→0 with good Creutz but the plaquette still runs away → the GPU MD is self-consistent for the *wrong* action. The GPU fermion stack (Dirac/solver/propagator/correlator) is correct — it agrees with the CPU to ~1e-10 on a fixed loaded config. So the bug is isolated to the GPU **gauge-update dynamics** (suspect `src/gpu/heat_bath_gpu.cu`, `gauge_ops_gpu.cu`, `gauge_force_gpu.cu`, or beta application), NOT measurement, Dirac, or solver. Use GPU only for fixed-config fermion spectroscopy via `Start Type: file:<path>` on CPU-generated configs. The RNG-free gate is the test harness: `inputs/rngfree_fixedcfg_4x4x4x8.inp` + `inputs/gen_fixedcfg_4x4x4x8.inp`.
+7. **nvc++ localrc / host-GCC skew**: HPC SDK `localrc` is pinned to the GCC present at SDK-install time. A host GCC upgrade breaks `build.sh gpu` with `limits.h: no directories in search list`. `build.sh gpu` self-heals by regenerating a project-local `.nvhpc/localrc` via `makelocalrc` and passing `-rc=`. If the GPU build dies on header search right after a host upgrade, this is why.
 
 ---
 

@@ -56,15 +56,35 @@ if [ "$TARGET" = "gpu" ]; then
         exit 1
     fi
 
-    # nvc++ GCC toolchain detection (same fix as TDHFBCS_v3)
-    for ver in 15 14 13 12 11; do
-        gccdir="/usr/lib/gcc/x86_64-redhat-linux/$ver"
-        if [ -f "$gccdir/crtbegin.o" ]; then
-            EXTRA_MAKE_ARGS="$EXTRA_MAKE_ARGS EXTRA_CXXFLAGS=--gcc-toolchain=/usr"
-            echo "  Using GCC toolchain for nvc++: /usr (GCC $ver)"
-            break
+    # nvc++ GCC toolchain binding.
+    #
+    # The HPC SDK ships a global localrc pinned to whatever GCC was present
+    # at install time. When the host GCC is later upgraded (e.g. Fedora
+    # 15 -> 16), nvc++ searches the now-deleted GCC tree and dies with
+    # "limits.h: no directories in search list". Rather than depend on the
+    # stale global localrc (and rather than the old crtbegin.o probe, which
+    # silently no-ops on non-redhat layouts), regenerate a project-local
+    # localrc against the *current* system g++ and point nvc++ at it via
+    # -rc=. This keeps the binding inside the project tree and self-heals
+    # across host compiler upgrades.
+    PROJECT_ROOT="$PWD"
+    NVHPC_RC_DIR="$PROJECT_ROOT/.nvhpc"
+    NVHPC_RC="$NVHPC_RC_DIR/localrc"
+    MAKELOCALRC="$(dirname "$(command -v nvc++)")/makelocalrc"
+    if [ -x "$MAKELOCALRC" ]; then
+        mkdir -p "$NVHPC_RC_DIR"
+        if "$MAKELOCALRC" "$(dirname "$(command -v nvc++)")" \
+                -gcc "$(command -v gcc)" -gpp "$(command -v g++)" \
+                -g77 "$(command -v gfortran || command -v gcc)" \
+                -x -d "$NVHPC_RC_DIR" >/dev/null 2>&1 && [ -f "$NVHPC_RC" ]; then
+            EXTRA_MAKE_ARGS="$EXTRA_MAKE_ARGS EXTRA_CXXFLAGS=-rc=$NVHPC_RC"
+            echo "  nvc++ localrc regenerated for GCC $(gcc -dumpfullversion 2>/dev/null || gcc -dumpversion): $NVHPC_RC"
+        else
+            echo "  Warning: makelocalrc failed; falling back to global nvc++ localrc"
         fi
-    done
+    else
+        echo "  Warning: makelocalrc not found next to nvc++; using global localrc"
+    fi
 
     # Auto-detect GPU architecture from nvidia-smi
     GPU_ARCH="cc75"

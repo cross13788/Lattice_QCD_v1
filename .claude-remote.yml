@@ -1,0 +1,26 @@
+remote_host: comphys
+remote_path: /home/ross/Lattice_QCD_v1
+deploy_cmd: LQCD_REMOTE_PATH=/home/ross/Lattice_QCD_v1 ./deploy.sh comphys
+build_cmd: bash build.sh gpu
+run_cmd: bash run.sh gpu
+long_run_cmd: ""
+process_pattern: "lqcd_gpu.exe|lqcd.exe"
+log_file: run/remote_run.log
+notes: |
+  comphys is the only host with the NVIDIA HPC SDK (nvc++ 24.11, no nvcc).
+  build.sh gpu uses nvc++ for everything; GPU = Quadro RTX 4000, cc75 (sm_75).
+  deploy.sh defaults to /home/ross/Lattice_QCD, so the LQCD_REMOTE_PATH
+  override in deploy_cmd is required to stay in the authorized _v1 tree.
+
+  nvc++ localrc self-heal: build.sh gpu regenerates a project-local
+  .nvhpc/localrc via makelocalrc against the current system g++ and passes
+  -rc= to nvc++. This is REQUIRED because the HPC SDK's global localrc is
+  pinned to the GCC present at SDK install time; a host GCC upgrade
+  (Fedora 15 -> 16) otherwise breaks nvc++ with "limits.h: no directories
+  in search list". .nvhpc/ is gitignored (host-specific).
+
+  CPU baseline also builds here (bash build.sh cpu -> run/lqcd.exe) for
+  apples-to-apples CPU-vs-GPU comparison on the same host.
+
+  CLAUDE.md pitfall #1: clover HMC fermion force is broken. Use quenched
+  clover only; do not interpret clover HMC dynamics as correct.
