@@ -1,51 +1,67 @@
 # Next Session Prompt
 
-**Status: GPU HMC bug RESOLVED 2026-05-16.** No open debugging task.
-Plan history: `claude_plans/2026-05-16_gpu-hmc-debug.md`.
+**Resume work in**: `/home/ross/Lattice_QCD_v1`
+**Plan**: `claude_plans/2026-05-16_gpu-clover-spectroscopy-validation.md` — read this first.
 
-## What was fixed
+## TL;DR
 
-`src/gpu/random_fields_gpu.cu` `kernel_generate_momenta` was launched
-one-thread-per-link (`idx` over `nLinks`) but indexed the cuRAND state
-per-site (`randStates[idx/4]`). cuRAND states are allocated per site
-(`gpu_alloc_rand(latticeVolume)`), so the 4 link directions at each site
-were generated from the SAME state → identical conjugate momenta per
-site → rank-deficient momentum heat-bath → non-canonical HMC →
-`<P>≈0.78` instead of `≈0.50`. Fix: one thread per site, loop μ=0..3
-from the single advancing per-site stream (mirrors the correct
-`kernel_generate_gaussian_spinor` / heat-bath kernels).
+All correctness fixes (gauge, Wilson/clover HMC, CPU+GPU clover
+Dirac+force) are committed and validated on `gpu-validation-comphys`.
+Remaining gap: GPU clover **meson spectroscopy** output was never
+numerically compared to CPU. Next: trace the GPU spectroscopy data flow,
+diff all 8 correlator channels CPU vs GPU on the fixed config to ~1e-10,
+and add the missing GPU `Pion:` summary print.
 
-## Validation (all pass, comphys)
+## Current State
 
-- GPU dynamical `inputs/hmc_4x4x4x4.inp`: `<P>≈0.53`, two-sign ΔH,
-  **97% accept** (was 0.78 / one-sign / 100%).
-- GPU pure-gauge HMC from a thermalized config
-  (`inputs/hmc_fromthermal_b60.inp`, κ=1e-6): **stays** `<P>≈0.58`
-  (was drifting to 0.78) — detailed balance restored.
-- GPU quenched regression `inputs/quenched_4x4x4x4_b56.inp`: `<P>≈0.54`
-  unchanged (heat-bath path untouched by the fix).
+- **Branch**: gpu-validation-comphys @ d9702c5
+- **Working tree**: clean (all committed; no handoff commit needed)
+- **Last session**: wired up + validated GPU clover (Dirac CG-count
+  match RNG-free; GPU vs CPU clover HMC track within RNG noise).
 
-## State
+## Key Findings to Carry Forward
 
-- Branch `gpu-validation-comphys`. Working tree has the one-line-class
-  source fix in `src/gpu/random_fields_gpu.cu` plus doc updates
-  (CLAUDE.md pitfall #6 + status line, this file, the plan). **Not yet
-  committed** — commit when ready.
-- comphys: `run/lqcd_cpu_fixed.exe` and `run/lqcd_gpu.exe` are the
-  fixed builds (09:48). `run/fixedcfg.bin` intact. Remote source ==
-  local (verified per-file); only stale `.o` files referenced old
-  diagnostics and were recompiled.
-- Diagnostic-only inputs created on comphys (not in repo, harmless):
-  `hmc_quenchedlimit_4x4x4x4.inp`, `hmc_fixedcfg_force.inp`,
-  `hmc_dtscale_4x4x4x4.inp`, `hmc_fromthermal_b60.inp`,
-  `rngfree_cg_4x4x4x8.inp`. `hmc_fromthermal_b60.inp` is worth keeping
-  as a GPU-HMC sampler regression gate (consider adding to repo).
+- GPU clover Dirac + force are **validated** — this phase is about the
+  spectroscopy *output/contraction*, not the operator.
+- GPU spectroscopy (`src/gpu/lqcd_main_gpu.cpp:307-319`) calls the
+  **host** `compute_propagator`/`meson_correlator`/`write_correlators`,
+  yet the GPU run emitted GPU-style `CG converged` / `Propagator
+  complete: 4808` lines. **Unresolved: does the propagator solve on GPU
+  or CPU in the GPU binary?** Resolve this before claiming validation.
+- GPU does NOT print the CPU `Pion: C(0)=...` summary; it does write
+  `correlator_*.dat`. Compare the files, not stdout.
+- RNG-free clover gate input already exists: `inputs/rngfree_clover_cg.inp`
+  (loads `run/fixedcfg.bin`, β=6 4³×8, clover on). Key is `Clover
+  Coefficient` not `c_SW`; cold start ⇒ F=0.
+- Per-plane clover gradient harness (`CLOVER_DIAG_PLANE`, env, default
+  off) exists and is reusable for any future clover regression.
 
-## If continuing GPU work
+## Immediate Next Steps
 
-The GPU port is now fully validated end-to-end (fermion spectroscopy,
-quenched heat bath, Wilson HMC). Remaining known-broken: **clover HMC
-force** (CLAUDE.md pitfall #1, separate from this) — that is the natural
-next GPU/physics target if desired. Audit other GPU RNG kernels with the
-[[gpu-curand-thread-granularity]] lens (all others were already correct,
-but it's the cheap recurring check).
+1. Trace GPU spectroscopy: how the linked CPU `compute_propagator.o`
+   resolves `apply_dirac` in the GPU build (GPU vs host solve). Read
+   `src/gpu/lqcd_main_gpu.cpp:290-320` + `src/Makefile` GPU objects.
+2. Rebuild CPU from HEAD (`cp` exes aside first), run
+   `inputs/rngfree_clover_cg.inp` on CPU and GPU; diff the 8
+   `correlator_*.dat` in the `SU3_*` output dir to ~1e-10. Add a
+   `bicgstab` variant too.
+3. Add `Pion:`-summary print to the GPU correlator block for parity;
+   re-run the Wilson (clover-off) RNG-free gate as regression.
+
+## Watch Out For
+
+- `build.sh {cpu,gpu}` make-cleans the other target's exe — `cp
+  run/lqcd_cpu_fixed.exe` / `run/lqcd_gpu.exe` aside first.
+- comphys SSH master key ~10-min expiry; fire `ssh comphys true` before
+  any long local-only stretch (memory: ssh-master-key-keepalive).
+- Compare correlator `.dat` files, not stdout (GPU has no `Pion:` line).
+- If GPU spectroscopy turns out host-solved, say so plainly and ask the
+  user whether wiring it to the GPU solver is in scope.
+
+## Before You Start
+
+- [ ] Read `claude_plans/2026-05-16_gpu-clover-spectroscopy-validation.md`
+- [ ] `git log -1` shows d9702c5; tree clean; on gpu-validation-comphys
+- [ ] Confirm comphys reachable (`ssh comphys true`) and
+      `run/fixedcfg.bin` present
+- [ ] Re-read CLAUDE.md pitfall #1 (clover), #6 (RNG-free gate), #7 (nvc++)
