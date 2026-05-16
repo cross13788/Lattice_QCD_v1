@@ -313,6 +313,15 @@ int main(int argc, char* argv[])
                     meson_correlator(propagator, ch, corr, latticeVolume);
                     effective_mass(corr, meff, nT);
                     write_correlators(config, ch, corr, meff, outputDirectory.c_str());
+
+                    // Pion summary, at parity with the CPU path
+                    // (generate_configurations.cpp): spectroscopy in the GPU
+                    // binary is host-solved (gauge is downloaded D2H, then
+                    // host compute_propagator -> host CG/BiCGstab).
+                    if (ch == 0) {
+                        printf("    Pion: C(0)=%.4e  C(T/2)=%.4e  m_eff(1)=%.6f\n",
+                               corr[0], corr[nT/2], meff[1]);
+                    }
                 }
                 delete[] corr;
                 delete[] meff;

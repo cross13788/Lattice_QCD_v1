@@ -1,67 +1,47 @@
 # Next Session Prompt
 
 **Resume work in**: `/home/ross/Lattice_QCD_v1`
-**Plan**: `claude_plans/2026-05-16_gpu-clover-spectroscopy-validation.md` — read this first.
+**Last plan (COMPLETE)**: `claude_plans/2026-05-16_gpu-clover-spectroscopy-validation.md`
 
-## TL;DR
+## Status: GPU clover spectroscopy validation phase COMPLETE
 
-All correctness fixes (gauge, Wilson/clover HMC, CPU+GPU clover
-Dirac+force) are committed and validated on `gpu-validation-comphys`.
-Remaining gap: GPU clover **meson spectroscopy** output was never
-numerically compared to CPU. Next: trace the GPU spectroscopy data flow,
-diff all 8 correlator channels CPU vs GPU on the fixed config to ~1e-10,
-and add the missing GPU `Pion:` summary print.
+The full CPU+GPU stack is validated. This session closed the last gap:
 
-## Current State
+- GPU clover **spectroscopy is host-solved** (gauge D2H → host
+  `compute_propagator` → host CG/BiCGstab → host `apply_dirac`; no GPU
+  solver invoked for spectroscopy). Scope decision (user): accept this;
+  do not wire spectroscopy to the GPU solver.
+- Clover **CG**: 8 channels CPU vs GPU agree to **8.5e-12** on
+  `fixedcfg.bin` — validated.
+- Clover **BiCGstab**: non-convergent on *both* binaries (stagnates
+  ~1e-2 at the 2000-iter cap) — pre-existing unpreconditioned-BiCGstab/
+  clover conditioning limitation, not a GPU regression. **Use CG for
+  clover spectroscopy.**
+- Wilson (clover off) BiCGstab regression: 2.18e-11 — passes.
+- GPU `Pion:` summary print added (parity with CPU).
+- Builds clean (cpu + gpu, comphys).
 
-- **Branch**: gpu-validation-comphys @ d9702c5
-- **Working tree**: clean (all committed; no handoff commit needed)
-- **Last session**: wired up + validated GPU clover (Dirac CG-count
-  match RNG-free; GPU vs CPU clover HMC track within RNG noise).
+## Open / Possible Next Directions (none blocking)
 
-## Key Findings to Carry Forward
-
-- GPU clover Dirac + force are **validated** — this phase is about the
-  spectroscopy *output/contraction*, not the operator.
-- GPU spectroscopy (`src/gpu/lqcd_main_gpu.cpp:307-319`) calls the
-  **host** `compute_propagator`/`meson_correlator`/`write_correlators`,
-  yet the GPU run emitted GPU-style `CG converged` / `Propagator
-  complete: 4808` lines. **Unresolved: does the propagator solve on GPU
-  or CPU in the GPU binary?** Resolve this before claiming validation.
-- GPU does NOT print the CPU `Pion: C(0)=...` summary; it does write
-  `correlator_*.dat`. Compare the files, not stdout.
-- RNG-free clover gate input already exists: `inputs/rngfree_clover_cg.inp`
-  (loads `run/fixedcfg.bin`, β=6 4³×8, clover on). Key is `Clover
-  Coefficient` not `c_SW`; cold start ⇒ F=0.
-- Per-plane clover gradient harness (`CLOVER_DIAG_PLANE`, env, default
-  off) exists and is reusable for any future clover regression.
-
-## Immediate Next Steps
-
-1. Trace GPU spectroscopy: how the linked CPU `compute_propagator.o`
-   resolves `apply_dirac` in the GPU build (GPU vs host solve). Read
-   `src/gpu/lqcd_main_gpu.cpp:290-320` + `src/Makefile` GPU objects.
-2. Rebuild CPU from HEAD (`cp` exes aside first), run
-   `inputs/rngfree_clover_cg.inp` on CPU and GPU; diff the 8
-   `correlator_*.dat` in the `SU3_*` output dir to ~1e-10. Add a
-   `bicgstab` variant too.
-3. Add `Pion:`-summary print to the GPU correlator block for parity;
-   re-run the Wilson (clover-off) RNG-free gate as regression.
-
-## Watch Out For
-
-- `build.sh {cpu,gpu}` make-cleans the other target's exe — `cp
-  run/lqcd_cpu_fixed.exe` / `run/lqcd_gpu.exe` aside first.
-- comphys SSH master key ~10-min expiry; fire `ssh comphys true` before
-  any long local-only stretch (memory: ssh-master-key-keepalive).
-- Compare correlator `.dat` files, not stdout (GPU has no `Pion:` line).
-- If GPU spectroscopy turns out host-solved, say so plainly and ask the
-  user whether wiring it to the GPU solver is in scope.
+1. **Wire GPU spectroscopy to the GPU solver** (deferred this session).
+   Route `compute_propagator` through `gpu_cg_solver` keeping gauge on
+   device, then re-validate. Substantial; only if GPU spectroscopy
+   throughput matters.
+2. **Clover BiCGstab conditioning**: even-odd-preconditioned clover
+   BiCGstab (`clover_even_odd.cpp` / 6×6 LU) may converge where the plain
+   solver stagnates — worth a path if BiCGstab clover spectroscopy is
+   wanted. CG is the supported path for now.
+3. Production dynamical clover runs (autocorrelation, tuned MD step,
+   scale setting) — CLAUDE.md Open Problems #1.
+4. Scale setting (Sommer r_0 / Wilson-flow t_0) — Open Problems #3.
 
 ## Before You Start
 
 - [ ] Read `claude_plans/2026-05-16_gpu-clover-spectroscopy-validation.md`
-- [ ] `git log -1` shows d9702c5; tree clean; on gpu-validation-comphys
-- [ ] Confirm comphys reachable (`ssh comphys true`) and
-      `run/fixedcfg.bin` present
-- [ ] Re-read CLAUDE.md pitfall #1 (clover), #6 (RNG-free gate), #7 (nvc++)
+      (esp. the OUTCOME section).
+- [ ] `git log -1`; tree clean; on gpu-validation-comphys.
+- [ ] comphys: spectroscopy gate exes are `run/lqcd_cpu_test.exe` /
+      `run/lqcd_gpu_test.exe`; inputs `inputs/rngfree_clover_cg.inp`,
+      `inputs/rngfree_fixedcfg_4x4x4x8.inp`; `run/fixedcfg.bin` present.
+- [ ] comphys tree is a deploy (rsync) target, NOT a git repo — git lives
+      only locally; `deploy.sh comphys` syncs.

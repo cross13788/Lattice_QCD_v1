@@ -119,6 +119,40 @@ validate all 8 meson channels CPU vs GPU to ~1e-10 on a fixed config.
 - [ ] `build.sh cpu` and `build.sh gpu` compile cleanly.
 - [ ] GPU prints a `Pion:` summary at parity with CPU.
 
+## OUTCOME (2026-05-16, completed)
+
+**User scope decision:** accept host-solved GPU spectroscopy, finish plan
+(do NOT wire spectroscopy to the GPU solver this session).
+
+- **Data flow resolved:** GPU `measureCorrelators` block downloads gauge
+  D2H then calls **host** `compute_propagator` → host `cg_solver`/
+  `bicgstab_solver` → host `apply_dirac`. GPU symbols are `gpu_`-prefixed
+  (`ColorSpinorDev*`), never collide; `gpu_compute_propagator`/
+  `gpu_cg_solver` are never invoked for spectroscopy. CPU vs GPU
+  correlators therefore differ only by g++ vs nvc++ FP (same source).
+- **Clover CG validated:** all 8 channels CPU vs GPU agree max **8.5e-12**
+  on `fixedcfg.bin` (β=6 4³×8, κ=0.150, c_SW=1.0), within ~1e-10 gate.
+- **Clover BiCGstab:** does NOT converge on either binary (stagnates
+  ~1e-2 ≫ 1e-12 at the 2000-iter cap). Pre-existing unpreconditioned-
+  BiCGstab/clover-conditioning limitation, NOT a GPU regression. Use CG.
+- **Wilson (clover off) BiCGstab regression:** CPU vs GPU 2.18e-11,
+  within ~1e-10 — passes; confirms BiCGstab itself is fine, the clover
+  operator at κ=0.150 is the issue.
+- **GPU `Pion:` print added** (`lqcd_main_gpu.cpp`), at parity with CPU.
+- **Builds:** `build.sh cpu` and `build.sh gpu` both compile cleanly on
+  comphys (nvc++ 24.11, cc75).
+- **Docs:** CLAUDE.md Status, `.claude-remote.yml` (stale "clover broken"
+  note removed), and memory `project_status` updated.
+
+### Validation Checklist (final)
+- [x] GPU spectroscopy data-flow documented (host-solved).
+- [x] CPU vs GPU 8 channels agree ~1e-12 clover **CG** on `fixedcfg.bin`.
+- [~] BiCGstab: non-convergent for clover (documented; not a gate).
+- [x] Effective masses match (Pion m_eff(1)=1.506217 CPU≡GPU, CG).
+- [x] Wilson (clover off) RNG-free gate 2.18e-11 (regression passes).
+- [x] `build.sh cpu` and `build.sh gpu` compile cleanly.
+- [x] GPU prints a `Pion:` summary at parity with CPU.
+
 ## References
 
 - Project CLAUDE.md: pitfall #1 (clover, now fixed CPU+GPU), #6

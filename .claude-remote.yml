@@ -22,5 +22,9 @@ notes: |
   CPU baseline also builds here (bash build.sh cpu -> run/lqcd.exe) for
   apples-to-apples CPU-vs-GPU comparison on the same host.
 
-  CLAUDE.md pitfall #1: clover HMC fermion force is broken. Use quenched
-  clover only; do not interpret clover HMC dynamics as correct.
+  CLAUDE.md pitfall #1: clover HMC fermion force is FIXED and gradient-check
+  validated on CPU+GPU (2026-05-16). GPU clover spectroscopy is host-solved
+  (gauge downloaded D2H, host compute_propagator -> host CG/BiCGstab) and the
+  clover CG path is validated CPU-vs-GPU to ~1e-12 on fixedcfg.bin. Note:
+  unpreconditioned BiCGstab stagnates on the clover operator at kappa=0.150
+  (does not converge on either binary) -- use CG for clover spectroscopy.
