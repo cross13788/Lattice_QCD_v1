@@ -26,3 +26,22 @@ struct CloverField {
     CloverBlock upper;  // spin 0,1
     CloverBlock lower;  // spin 2,3
 };
+
+//-----------------------------------------------
+// Diagnostic isolation selectors for debugging the
+// clover fermion force against the numerical gradient
+// check. Read once from the environment:
+//   CLOVER_DIAG_PLANE : -1 (all, default) or sigma
+//                       pair index 0..5 — restricts
+//                       BOTH the clover field (hence
+//                       S_PF / numerical gradient) and
+//                       the analytic clover force to a
+//                       single (mu,nu) plane.
+//   CLOVER_DIAG_LEAF  : -1 (all, default) or 0..3 —
+//                       restricts the analytic clover
+//                       force to a single site-leaf
+//                       (for term-by-term inspection).
+// Production runs leave both unset => -1 => no effect.
+//-----------------------------------------------
+int clover_diag_plane();
+int clover_diag_leaf();

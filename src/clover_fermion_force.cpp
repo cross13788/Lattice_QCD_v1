@@ -1,14 +1,43 @@
 //-----------------------------------------------
-// Clover fermion force for HMC
+// Clover (Sheikholeslami-Wohlert) fermion force for HMC
 //
-// The correct force matrix for each clover leaf
-// L = left * U_mu(x) * right at site z is:
+// Derived directly from the EXACT clover loops used in
+// compute_field_strength_tensor (wilson_flow.cpp):
 //
-//   M_{alpha,beta} = sum_{ss'} sigma_{ss'} *
-//     [left^T * Y*_s(z)]_alpha * [right * X_{s'}(z)]_beta
+//   F_{ab}(z) = (Q_{ab}(z) - Q_{ab}^dag(z)) / 8
+//   Q_{ab}(z) = L1 + L2 + L3 + L4   (the 4-leaf clover)
+//   A(z)      = c_sw * (i/4) * sum_{a<b} sigma_{ab} (x) F_{ab}(z)
 //
-// This requires splitting the staple into left/right
-// parts around U_mu(x) for each of the 4 leaf positions.
+// The pseudofermion action S = phi^dag (D^dag D)^{-1} phi with
+// X = (D^dag D)^{-1} phi, Y = D X gives, for the clover part,
+//
+//   dS_cl = -( Y^dag dA X + X^dag dA Y )          (A is Hermitian)
+//         = -(c_sw i/4)(1/8) sum_z sum_{a<b}
+//             Tr[ (dQ_{ab}(z) - dQ_{ab}^dag(z)) * R(z) ]
+//
+// where the spin-traced colour source (3x3, index [d][c]) is
+//
+//   R(z)_{dc} = sum_{s,s'} sigma^{(ab)}_{s s'}
+//                 [ X_{s'}(z)_d conj(Y_s(z)_c)
+//                 + Y_{s'}(z)_d conj(X_s(z)_c) ]
+//
+// Each clover loop is a product of 4 links V0 V1 V2 V3. For the
+// link at position i (the object U = U_dir(s), appearing as U or
+// U^dag), with P_left = V0..V_{i-1}, P_right = V_{i+1}..V3:
+//
+//   M_i = P_right * R(z) * P_left
+//   U  position : Phi += U * M_i
+//   U^dag pos.  : Phi -= M_i * U^dag
+//
+// summed over the 4 loops (Q) and their reversed-daggered
+// partners (-Q^dag). The per-link force is C * TA(Phi), with C a
+// single real constant (sign/magnitude fixed by the numerical
+// gradient check; the i and the -2 Re fold into C because R is
+// built from the Hermitian sigma).
+//
+// The CLOVER_DIAG_PLANE selector (clover_module.hpp) restricts
+// this AND the clover field (hence S_PF / the numerical gradient)
+// to one (a,b) plane for term-by-term validation.
 //-----------------------------------------------
 #include "constants_module.hpp"
 #include "input_module.hpp"
@@ -24,74 +53,66 @@
 #include <cstring>
 
 //-----------------------------------------------
-// Compute force matrix from one clover leaf.
-//
-// The leaf is L = left * U * right, with U removed.
-// Force: M_{alpha,beta} = sum_{ss'} sigma_{ss'} *
-//   v_s_alpha * w_{s'}_beta
-//
-// where v_s = left^T * conj(Y_s(z)) and
-//       w_{s'} = right * X_{s'}(z)
+// Site shift by +/- one lattice unit in a direction.
 //-----------------------------------------------
-static void leaf_force_matrix(
-    const SU3matrix* left,    // left part (or nullptr for identity)
-    const SU3matrix* right,   // right part (or nullptr for identity)
-    const ColorSpinor& Xz,
-    const ColorSpinor& Yz,
-    int mu, int nu,
-    SU3matrix& M)
+static inline int shiftP(int site, int dir) { return neighborPlus[site * 4 + dir]; }
+static inline int shiftM(int site, int dir) { return neighborMinus[site * 4 + dir]; }
+
+//-----------------------------------------------
+// One link reference inside a clover loop.
+//   site, dir   : the gauge link U_dir(site)
+//   dag         : 0 -> appears as U, 1 -> appears as U^dag
+//-----------------------------------------------
+struct LinkRef { int site, dir, dag; };
+
+//-----------------------------------------------
+// Build the 4 links of clover leaf k (0..3) of Q_{a,b}(z),
+// in path order, matching compute_field_strength_tensor.
+//-----------------------------------------------
+static void build_leaf(int z, int a, int b, int k, LinkRef L[4])
 {
-    // Get sigma matrix
-    int mA = (mu < nu) ? mu : nu;
-    int mB = (mu < nu) ? nu : mu;
-    // No sign flip: sigma_{nu,mu}*F_{nu,mu} = (-sigma)*(-F) = +sigma*F
-    const complex_t* sig = get_sigma_matrix(mA, mB);
+    int za  = shiftP(z, a);
+    int zb  = shiftP(z, b);
+    int zma = shiftM(z, a);
+    int zmb = shiftM(z, b);
 
-    // Compute v_s = left^T * Y*_s and w_{s'} = right * X_{s'}
-    // (NC-component color vectors for each spin)
-    complex_t v[ND][NC], w[ND][NC];
-
-    for (int s = 0; s < ND; s++) {
-        if (left) {
-            // v_s = left^T * conj(Y_s) = sum_a left_{a,alpha}^* ...
-            // Actually left^T_{alpha,a} = left_{a,alpha}
-            for (int alpha = 0; alpha < NC; alpha++) {
-                v[s][alpha] = complex_t(0, 0);
-                for (int a = 0; a < NC; a++)
-                    v[s][alpha] += left->m[a][alpha] * std::conj(Yz.v[s][a]);
-            }
-        } else {
-            // left = identity
-            for (int alpha = 0; alpha < NC; alpha++)
-                v[s][alpha] = std::conj(Yz.v[s][alpha]);
-        }
+    if (k == 0) {
+        // L1: U_a(z) U_b(z+a) U_a^dag(z+b) U_b^dag(z)
+        L[0] = {z,  a, 0};
+        L[1] = {za, b, 0};
+        L[2] = {zb, a, 1};
+        L[3] = {z,  b, 1};
+    } else if (k == 1) {
+        // L2: U_b(z) U_a^dag(z-a+b) U_b^dag(z-a) U_a(z-a)
+        int zmapb = shiftP(zma, b);
+        L[0] = {z,     b, 0};
+        L[1] = {zmapb, a, 1};
+        L[2] = {zma,   b, 1};
+        L[3] = {zma,   a, 0};
+    } else if (k == 2) {
+        // L3: U_a^dag(z-a) U_b^dag(z-a-b) U_a(z-a-b) U_b(z-b)
+        int zmamb = shiftM(zma, b);
+        L[0] = {zma,   a, 1};
+        L[1] = {zmamb, b, 1};
+        L[2] = {zmamb, a, 0};
+        L[3] = {zmb,   b, 0};
+    } else {
+        // L4: U_b^dag(z-b) U_a(z-b) U_b(z-b+a) U_a^dag(z)
+        int zmbpa = shiftP(zmb, a);
+        L[0] = {zmb,   b, 1};
+        L[1] = {zmb,   a, 0};
+        L[2] = {zmbpa, b, 0};
+        L[3] = {z,     a, 1};
     }
+}
 
-    for (int sp = 0; sp < ND; sp++) {
-        if (right) {
-            for (int beta = 0; beta < NC; beta++) {
-                w[sp][beta] = complex_t(0, 0);
-                for (int b = 0; b < NC; b++)
-                    w[sp][beta] += right->m[beta][b] * Xz.v[sp][b];
-            }
-        } else {
-            // right = identity
-            for (int beta = 0; beta < NC; beta++)
-                w[sp][beta] = Xz.v[sp][beta];
-        }
-    }
-
-    // M = sum_{ss'} sigma_{ss'} * v_s ⊗ w_{s'}
-    for (int s = 0; s < ND; s++) {
-        for (int sp = 0; sp < ND; sp++) {
-            complex_t sigma_ss = sig[s * ND + sp];
-            if (std::abs(sigma_ss) < 1e-15) continue;
-
-            for (int alpha = 0; alpha < NC; alpha++)
-                for (int beta = 0; beta < NC; beta++)
-                    M.m[alpha][beta] += sigma_ss * v[s][alpha] * w[sp][beta];
-        }
-    }
+// Matrix of a link reference (U or U^dag).
+static inline void link_matrix(const SU3matrix* gaugeField,
+                               const LinkRef& L, SU3matrix& V)
+{
+    const SU3matrix& U = gaugeField[L.site * 4 + L.dir];
+    if (L.dag) su3_dagger(U, V);
+    else       V = U;
 }
 
 void compute_clover_force(const SU3matrix* gaugeField,
@@ -102,101 +123,125 @@ void compute_clover_force(const SU3matrix* gaugeField,
 {
     printf("  Computing clover fermion force (c_sw = %.4f)...\n", c_sw);
 
-    real_t prefactor = -c_sw / 32.0;
+    const int diagPlane = clover_diag_plane();
 
-    #pragma omp parallel for
-    for (int site = 0; site < vol; site++) {
-        for (int mu = 0; mu < 4; mu++) {
-            int idx = site * 4 + mu;
-            int xPmu = neighborPlus[site * 4 + mu];
+    // Single real constant: -2 Re, (c_sw i/4), (1/8) from F=(Q-Qdag)/8,
+    // and the i absorbed via the Hermitian sigma all collapse to a real
+    // coefficient.  Sign/magnitude validated by gradient_check.
+    const real_t C = c_sw / 32.0;
 
-            SU3matrix Mtot;
-            su3_zero(Mtot);
+    // Per-link force accumulator (color matrix, pre-TA).
+    int nLinks = vol * 4;
+    SU3matrix* acc = new SU3matrix[nLinks];
+    for (int i = 0; i < nLinks; i++) su3_zero(acc[i]);
 
-            for (int nu = 0; nu < 4; nu++) {
-                if (nu == mu) continue;
+    for (int a = 0; a < 4; a++) {
+        for (int bb = a + 1; bb < 4; bb++) {
+            int sigIdx = get_sigma_pair_index(a, bb);
+            if (diagPlane >= 0 && sigIdx != diagPlane) continue;
 
-                if (nu > mu) {
-                    //=== UPPER STAPLE (nu > mu): U_mu is PRIMARY ===
-                    // Leaf 1 at z=x:     L = U * [B1] where B1 = staple
-                    // Leaf 2 at z=x+mu:  L = [A2] * U where A2 = staple
-                    // Leaf 3 at z=x+mu+nu: L = [A3] * U * [B3]
-                    // Leaf 4 at z=x+nu:    L = [A4] * U * [B4]
+            const complex_t* sig = get_sigma_matrix(a, bb);
 
-                    int xPnu    = neighborPlus[site * 4 + nu];
-                    int xPmuPnu = neighborPlus[xPmu * 4 + nu];
+            for (int z = 0; z < vol; z++) {
 
-                    // Staple components
-                    SU3matrix Unu_xPmu = gaugeField[xPmu * 4 + nu];
-                    SU3matrix UmuDag_xPnu; su3_dagger(gaugeField[xPnu * 4 + mu], UmuDag_xPnu);
-                    SU3matrix UnuDag_x;   su3_dagger(gaugeField[site * 4 + nu], UnuDag_x);
-
-                    // Full staple S = Unu(x+mu) * Umu†(x+nu) * Unu†(x)
-                    SU3matrix S12, S;
-                    su3_multiply(Unu_xPmu, UmuDag_xPnu, S12);
-                    su3_multiply(S12, UnuDag_x, S);
-
-                    // Partial products for split staples
-                    SU3matrix S23;
-                    su3_multiply(UmuDag_xPnu, UnuDag_x, S23);
-
-                    // Leaf 1: left=I, right=S
-                    leaf_force_matrix(nullptr, &S, X[site], Y[site], mu, nu, Mtot);
-
-                    // Leaf 2: left=S, right=I
-                    leaf_force_matrix(&S, nullptr, X[xPmu], Y[xPmu], mu, nu, Mtot);
-
-                    // Leaf 3: left=S23^dag_transposed...
-                    // A3 = Umu†(x+nu) * Unu†(x), B3 = Unu(x+mu)
-                    leaf_force_matrix(&S23, &Unu_xPmu, X[xPmuPnu], Y[xPmuPnu], mu, nu, Mtot);
-
-                    // Leaf 4: A4 = Unu†(x), B4 = Unu(x+mu) * Umu†(x+nu)
-                    leaf_force_matrix(&UnuDag_x, &S12, X[xPnu], Y[xPnu], mu, nu, Mtot);
-
-                } else {
-                    //=== LOWER STAPLE (nu < mu): U_mu is SECONDARY ===
-                    // In Q_{nu,mu}, U_mu appears at different positions
-                    // Staple links: Unu†(x+mu-nu), Umu†(x-nu), Unu(x-nu)
-
-                    int xMnu    = neighborMinus[site * 4 + nu];
-                    int xPmuMnu = neighborMinus[xPmu * 4 + nu];
-
-                    SU3matrix UnuDag_xPmuMnu; su3_dagger(gaugeField[xPmuMnu * 4 + nu], UnuDag_xPmuMnu);
-                    SU3matrix UmuDag_xMnu;    su3_dagger(gaugeField[xMnu * 4 + mu], UmuDag_xMnu);
-                    SU3matrix Unu_xMnu = gaugeField[xMnu * 4 + nu];
-
-                    SU3matrix Sp12, Sp;
-                    su3_multiply(UnuDag_xPmuMnu, UmuDag_xMnu, Sp12);
-                    su3_multiply(Sp12, Unu_xMnu, Sp);
-
-                    SU3matrix Sp23;
-                    su3_multiply(UmuDag_xMnu, Unu_xMnu, Sp23);
-
-                    // Leaf 1': left=I, right=Sp
-                    leaf_force_matrix(nullptr, &Sp, X[site], Y[site], mu, nu, Mtot);
-
-                    // Leaf 2': left=Sp, right=I
-                    leaf_force_matrix(&Sp, nullptr, X[xPmu], Y[xPmu], mu, nu, Mtot);
-
-                    // Leaf 3': left=Sp23, right=UnuDag_xPmuMnu
-                    leaf_force_matrix(&Sp23, &UnuDag_xPmuMnu, X[xPmuMnu], Y[xPmuMnu], mu, nu, Mtot);
-
-                    // Leaf 4': left=Unu_xMnu, right=Sp12
-                    leaf_force_matrix(&Unu_xMnu, &Sp12, X[xMnu], Y[xMnu], mu, nu, Mtot);
+                // Spin-traced colour source R(z)_{dc}
+                //   = sum_{ss'} sigma_{ss'} [ X_{s'}_d Y*_s_c + Y_{s'}_d X*_s_c ]
+                SU3matrix R;
+                su3_zero(R);
+                for (int s = 0; s < ND; s++) {
+                    for (int sp = 0; sp < ND; sp++) {
+                        complex_t sg = sig[s * ND + sp];
+                        if (std::abs(sg) < 1e-15) continue;
+                        for (int d = 0; d < NC; d++)
+                            for (int c = 0; c < NC; c++)
+                                R.m[d][c] += sg *
+                                    ( X[z].v[sp][d] * std::conj(Y[z].v[s][c])
+                                    + Y[z].v[sp][d] * std::conj(X[z].v[s][c]) );
+                    }
                 }
-            } // end nu
 
-            // F^cl = prefactor * [U · M]_{TA}
-            SU3matrix UM, forceTA;
-            su3_multiply(gaugeField[idx], Mtot, UM);
-            su3_traceless_antiherm(UM, forceTA);
+                // Q loops (sign +1) and their reversed-daggered
+                // partners -Q^dag (sign -1).
+                for (int k = 0; k < 4; k++) {
+                    LinkRef Lp[4];
+                    build_leaf(z, a, bb, k, Lp);
 
-            for (int a = 0; a < NC; a++)
-                for (int b = 0; b < NC; b++)
-                    force[idx].m[a][b] += complex_t(prefactor, 0.0) * forceTA.m[a][b];
+                    SU3matrix V[4];
+                    for (int q = 0; q < 4; q++)
+                        link_matrix(gaugeField, Lp[q], V[q]);
 
-        } // end mu
-    } // end site
+                    for (int i = 0; i < 4; i++) {
+                        // A = P_left = V0..V_{i-1}, B = P_right = V_{i+1}..V3
+                        SU3matrix A, B, tmp;
+                        su3_identity(A);
+                        for (int q = 0; q < i; q++) {
+                            su3_multiply(A, V[q], tmp); A = tmp;
+                        }
+                        su3_identity(B);
+                        for (int q = i + 1; q < 4; q++) {
+                            su3_multiply(B, V[q], tmp); B = tmp;
+                        }
 
+                        // BRA = B * R * A
+                        SU3matrix BRA, t2;
+                        su3_multiply(B, R, t2);
+                        su3_multiply(t2, A, BRA);
+
+                        // Ad R Bd = A^dag * R * B^dag  (the -dQ^dag companion)
+                        SU3matrix Ad, Bd, ARBd, t3;
+                        su3_dagger(A, Ad);
+                        su3_dagger(B, Bd);
+                        su3_multiply(Ad, R, t3);
+                        su3_multiply(t3, Bd, ARBd);
+
+                        const LinkRef& Li = Lp[i];
+                        const SU3matrix& U = gaugeField[Li.site * 4 + Li.dir];
+                        SU3matrix Ud; su3_dagger(U, Ud);
+
+                        // dS_cl ~ Tr[(dQ - dQ^dag) R]; per occurrence the
+                        // coefficient of G = i*Ta is Phi = Phi_dQ - Phi_dQdag:
+                        //   V=U  : Phi = U*B*R*A  +  A^dag*R*B^dag*U^dag
+                        //   V=U^d: Phi = -B*R*A*U^dag  -  U*A^dag*R*B^dag
+                        SU3matrix Phi, ta, tb;
+                        if (Li.dag == 0) {
+                            su3_multiply(U, BRA, ta);    // U*B*R*A
+                            su3_multiply(ARBd, Ud, tb);  // A^d*R*B^d*U^d
+                            for (int p = 0; p < NC; p++)
+                                for (int qq = 0; qq < NC; qq++)
+                                    Phi.m[p][qq] = ta.m[p][qq] + tb.m[p][qq];
+                        } else {
+                            su3_multiply(BRA, Ud, ta);   // B*R*A*U^d
+                            su3_multiply(U, ARBd, tb);   // U*A^d*R*B^d
+                            for (int p = 0; p < NC; p++)
+                                for (int qq = 0; qq < NC; qq++)
+                                    Phi.m[p][qq] = -ta.m[p][qq] - tb.m[p][qq];
+                        }
+
+                        int li = Li.site * 4 + Li.dir;
+                        for (int p = 0; p < NC; p++)
+                            for (int qq = 0; qq < NC; qq++)
+                                acc[li].m[p][qq] += Phi.m[p][qq];
+                    }
+                }
+            }
+        }
+    }
+
+    // F^cl[link] += (i*C) * TA(acc[link])
+    // The clover coefficient is c_sw*(i/4); the explicit i must be
+    // carried (Re Tr[iTa . (real*acc)] would vanish otherwise).
+    for (int li = 0; li < nLinks; li++) {
+        SU3matrix accI;
+        for (int p = 0; p < NC; p++)
+            for (int q = 0; q < NC; q++)
+                accI.m[p][q] = complex_t(0.0, 1.0) * acc[li].m[p][q];
+        SU3matrix ta;
+        su3_traceless_antiherm(accI, ta);
+        for (int p = 0; p < NC; p++)
+            for (int q = 0; q < NC; q++)
+                force[li].m[p][q] += complex_t(C, 0.0) * ta.m[p][q];
+    }
+
+    delete[] acc;
     printf("  Clover force computed.\n");
 }

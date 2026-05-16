@@ -22,6 +22,27 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <cstdlib>
+
+//-----------------------------------------------
+// Diagnostic isolation selectors (see clover_module.hpp).
+// Lazily read from the environment exactly once.
+//-----------------------------------------------
+static int read_clover_diag_env(const char* key)
+{
+    const char* v = std::getenv(key);
+    return (v != nullptr) ? std::atoi(v) : -1;
+}
+int clover_diag_plane()
+{
+    static int p = read_clover_diag_env("CLOVER_DIAG_PLANE");
+    return p;
+}
+int clover_diag_leaf()
+{
+    static int l = read_clover_diag_env("CLOVER_DIAG_LEAF");
+    return l;
+}
 
 //-----------------------------------------------
 // sigma_{mu,nu} = (i/2) * [gamma_mu, gamma_nu]
@@ -103,6 +124,8 @@ void compute_clover_field(const SU3matrix* gaugeField,
 {
     if (!sigmaInitialized) initialize_sigma_matrices();
 
+    const int diagPlane = clover_diag_plane();
+
     #pragma omp parallel for
     for (int site = 0; site < vol; site++) {
         // Zero the blocks
@@ -116,6 +139,9 @@ void compute_clover_field(const SU3matrix* gaugeField,
         for (int mu = 0; mu < 4; mu++) {
             for (int nu = mu + 1; nu < 4; nu++) {
                 int sigIdx = sigma_index(mu, nu);
+
+                // Diagnostic: restrict to a single (mu,nu) plane
+                if (diagPlane >= 0 && sigIdx != diagPlane) continue;
 
                 // Get F_{mu,nu}(x) — a 3x3 color matrix
                 SU3matrix Fmunu;

@@ -4,7 +4,7 @@
 
 From-scratch C++17 implementation of SU(3) lattice QCD: Wilson gauge action, Wilson fermions (unimproved + clover), heat bath (Kennedy-Pendleton / Cabibbo-Marinari) + overrelaxation, Hybrid Monte Carlo with pseudofermions, CG/BiCGstab solvers with even-odd preconditioning, meson spectroscopy, Wilson flow, and static quark potential. Written by Christian Ross at Vanderbilt University under Prof. A.S. Umar (DOE DE-SC0013847). ~60 CPU source files + ~27 GPU (CUDA) files. No external QCD libraries -- everything from scratch.
 
-**Status**: Production for quenched gauge + Wilson fermion spectroscopy + quenched HMC. Clover fermion force for HMC is partially implemented (structural framework + gradient check tool in place; leaf-specific staple decomposition needs debugging — see `gradient_check.cpp`). Quenched clover spectroscopy works. **GPU port: fermion stack, quenched heat bath, AND HMC all validated** (built+validated on comphys 2026-05-16). The GPU Wilson-Dirac/solver/propagator/correlator path agrees with the CPU to ~1e-10 on a fixed config (RNG-free gate). GPU quenched heat bath is correct (`<P>≈0.54` at beta=5.6, matches literature; sweep-coloring bug fixed — pitfall #6). GPU HMC is now correct: dynamical `<P>≈0.53` with two-sign ΔH and ~97% acceptance, and pure-gauge HMC preserves the equilibrium of a thermalized config (the per-link/per-site cuRAND-indexing bug in `kernel_generate_momenta` is fixed — pitfall #6). CPU validated on lattices up to 8^3x16.
+**Status**: Production for quenched gauge + Wilson fermion spectroscopy + quenched HMC + dynamical Wilson HMC. Clover fermion force for HMC is **fixed and gradient-check validated on CPU 2026-05-16** (pitfall #1; per-plane `|ratio-1|~1e-5`, stable dynamical clover HMC). Quenched clover spectroscopy works; GPU clover force remains unvalidated. **GPU port: fermion stack, quenched heat bath, AND HMC all validated** (built+validated on comphys 2026-05-16). The GPU Wilson-Dirac/solver/propagator/correlator path agrees with the CPU to ~1e-10 on a fixed config (RNG-free gate). GPU quenched heat bath is correct (`<P>≈0.54` at beta=5.6, matches literature; sweep-coloring bug fixed — pitfall #6). GPU HMC is now correct: dynamical `<P>≈0.53` with two-sign ΔH and ~97% acceptance, and pure-gauge HMC preserves the equilibrium of a thermalized config (the per-link/per-site cuRAND-indexing bug in `kernel_generate_momenta` is fixed — pitfall #6). CPU validated on lattices up to 8^3x16.
 
 ---
 
@@ -107,14 +107,14 @@ Checkerboard decomposition (even/odd parity). Each site updates all 4 link direc
 - **Even-odd preconditioning**: Schur complement D_hat = 1 - D_eo*D_oe. Halves iteration count. Clover even-odd uses 6x6 LU decomposition for (1+A)^{-1}.
 
 ### HMC Implementation
-Matrix exponential via 12-term Taylor/Horner + reunitarization. Leapfrog integrator. Fermion force from CG inversion at each MD step. **Clover fermion force is partially implemented** -- structural framework with gradient check tool; leaf-specific staple decomposition needs debugging. Wilson HMC works correctly. A `gradient_check.cpp` tool validates the force numerically.
+Matrix exponential via 12-term Taylor/Horner + reunitarization. Leapfrog integrator. Fermion force from CG inversion at each MD step. **Clover fermion force is fixed and gradient-check validated (CPU, 2026-05-16; pitfall #1).** Wilson HMC works correctly. A `gradient_check.cpp` tool validates the force numerically.
 
 ### Wilson Flow
 Luscher's 3-stage RK3 integrator. Both plaquette and clover energy density definitions. Reversibility test included.
 
 ### Known Numerical Pitfalls
 
-1. **Clover HMC force is partially implemented**: The zero-force stub has been replaced with a structural implementation (`clover_fermion_force.cpp`) using non-Hermitian Lambda, left/right staple decomposition per leaf, and TA projection. A numerical gradient check (`gradient_check.cpp`) validates the Wilson force perfectly (ratio = 1.0 ± 1e-5) but shows the clover force has the right magnitude but incorrect leaf-specific staple index structure — the 8 leaf contributions (4 upper + 4 lower per mu-nu pair) need their left/right matrix splitting debugged against the gradient check. Use `gradient_check.cpp` to systematically test each leaf. The clover force requires ~5x smaller MD step sizes than Wilson (known property of clover actions). For now, use quenched clover for spectroscopy (unaffected by force).
+1. **Clover HMC force — FIXED & validated 2026-05-16 (CPU).** `clover_fermion_force.cpp` was fully rewritten and now passes the numerical gradient check: per-(μ,ν)-plane `Average |ratio-1| ≈ 1–4e-5`, full ≈ 2.7e-4 (the `eps=1e-5` finite-difference floor; `ratio = cl_rat = 1.0000` for every entry). Dynamical clover HMC is stable (smooth thermalization, `dH ≈ −0.003` at MD step 0.004, energy conserved, ~5× smaller MD step than Wilson — a known clover property). **Derivation/fix:** the force is derived mechanically from the *exact* `wilson_flow.cpp` Q-loops. `dS_cl = −(Y†dA X + X†dA Y)`, `A = c_sw(i/4)Σσ_{ab}⊗F`, `F=(Q−Q†)/8`, source `R(z)_{dc}=Σ_{ss'}σ_{ss'}[X_{s'd}Y*_{sc}+Y_{s'd}X*_{sc}]`. The two original bugs: (i) the explicit clover `i` was dropped (`Re Tr[iTa·(real·acc)]` vanishes — must carry `i`); (ii) the `−Q†` part is `−(dQ)†` of the *same* dQ, so each link occurrence contributes BOTH `Φ_dQ` and its companion `−Φ_{dQ†}` (`A†RB†U†` etc.) — the old code instead built separate reversed-daggered loops (a double-count) with a transposed colour product. Final: `F^cl += (c_sw/32)·TA(i·Σ_occ Φ)`. A per-plane isolation harness (`CLOVER_DIAG_PLANE`/`CLOVER_DIAG_LEAF`, env vars, default −1 = off, zero production impact; restricts the clover field AND the analytic force to one plane) is in `clover_term.cpp`/`clover_module.hpp` for future regression. Test input: `inputs/hmc_clover_gradcheck.inp` (hot start, `Clover Coefficient: 1.0`; note the parser key is `Clover Coefficient`, NOT `c_SW`, and cold start gives F=0). **GPU clover force is untouched and remains unvalidated** — this fix is CPU-only.
 2. **Thermalization**: Cold start needs fewer sweeps than hot start. Monitor plaquette for plateau.
 3. **Critical slowing down**: Near kappa_c, CG iteration count diverges as condition number ~ (am)^{-2}.
 4. **Overrelaxation alone is not ergodic**: Must combine with heat bath sweeps.
@@ -184,7 +184,7 @@ Lattice_QCD_v1/
 | `generate_pseudofermion.cpp` | phi = D^dag * xi |
 | `pseudofermion_action.cpp` | S_PF = phi^dag (D^dag D)^{-1} phi |
 | `gauge_force.cpp` | F_G = (beta/Nc) * [U*staple]_TA |
-| `fermion_force.cpp` | F_F from CG inversion + clover force (partially implemented) |
+| `fermion_force.cpp` | F_F from CG inversion + clover force (clover validated, pitfall #1) |
 | `gradient_check.cpp` | Numerical gradient validation for fermion force |
 
 #### Observables
@@ -268,7 +268,7 @@ Lattice QCD and DSE/BSE are **complementary approaches to the same QCD**:
 - Cross-validation: gluon propagator D(k^2), quark mass function M(p^2), meson masses should agree.
 
 ### Open Problems
-1. **Clover HMC**: Fermion force stub needs implementation for dynamical clover simulations
+1. **Clover HMC**: CPU fermion force fixed & validated 2026-05-16 (pitfall #1). Remaining: validate the *GPU* clover force, and production dynamical clover runs (autocorrelation, tuned MD step)
 2. **Staggered/domain-wall fermions**: Alternative fermion discretizations not implemented
 3. **Scale setting**: Sommer parameter r_0 or Wilson flow t_0 for physical units
 4. **Finite temperature**: Polyakov loop transition needs systematic T scan
@@ -294,7 +294,7 @@ Lattice QCD and DSE/BSE are **complementary approaches to the same QCD**:
 When acting as domain expert for this project:
 - **Be blunt and direct.** If the user confuses lattice conventions, say so.
 - **beta = 6/g^2 for SU(3).** Not 2*Nc/g^2 with Nc left symbolic. beta=6.0 means g^2=1.
-- **The clover HMC force is partially implemented.** The structural framework is in place but the leaf-specific staple decomposition needs debugging. Use `gradient_check.cpp` (runs automatically with `Verbose Output: on` and `Clover Coefficient > 0`) to validate. Wilson HMC is verified correct. Quenched clover spectroscopy works regardless of force status.
+- **The clover HMC force is FIXED and gradient-check validated (CPU, 2026-05-16; pitfall #1).** `gradient_check.cpp` (runs automatically with `Verbose Output: on` and clover on) gives `ratio = 1.0000` per plane. Wilson HMC also verified correct. Quenched clover spectroscopy works. GPU clover force is untouched/unvalidated. Input key is `Clover Coefficient` (NOT `c_SW`); cold start gives F=0 (use hot/thermalized for the gradient check).
 - **Fermion doubling is fundamental.** Wilson's fix (the r-term) adds O(a) errors that clover removes. You cannot have chiral symmetry + locality + no doubling on the lattice (Nielsen-Ninomiya).
 - **kappa_c is NOT 1/8.** It depends on the gauge coupling and is determined non-perturbatively. At beta=6.0, kappa_c ~ 0.157 for unimproved Wilson.
 - **Thermalization matters.** Always check plaquette vs sweep number. Discard pre-thermalization configurations.
